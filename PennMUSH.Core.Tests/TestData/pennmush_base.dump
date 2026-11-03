@@ -1,0 +1,66 @@
++V1538
+~3
+!0
+Room Zero
+-1
+1
+-1
+-1
+-1
+
+
+
+1
+-1
+0
+32768
+0
+0
+]DESCRIBE^1^32
+You are in Room Zero.  It's very dark here.
+]OSUCCESS^1^33
+is briefly visible through the mist.
+<
+!1
+One
+0
+-1
+0
+-1
+-1
+
+
+
+1
+-1
+0
+32787
+512
+0
+]DESCRIBE^1^32
+You see Number One.
+]LAST^1^20
+Sun Jan 17 18:50:49 1993
+]LASTSITE^1^21
+disco.seas.upenn.edu
+<
+!2
+Master Room
+-1
+-1
+-1
+-1
+-1
+
+
+
+1
+-1
+0
+32768
+8
+0
+]DESCRIBE^1^32
+This is the master room. Any exit in here is considered global. The same is true to objects with $-commands placed here. The number of objects and exits in this room should be kept to a minimum.
+<
+***END OF DUMP***

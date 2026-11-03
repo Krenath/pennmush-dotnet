@@ -84,6 +84,18 @@ public static class LockParser
             return inner;
         }
 
+        if (s[pos] == '=')
+        {
+            pos++; // consume '='
+            SkipWhitespace(s, ref pos);
+            if (pos < s.Length && s[pos] == '#') pos++;
+            int start = pos;
+            while (pos < s.Length && (char.IsDigit(s[pos]) || s[pos] == '-'))
+                pos++;
+            if (pos > start && int.TryParse(s.Substring(start, pos - start), out int dVal))
+                return new DbrefLockNode(new Dbref(dVal));
+        }
+
         if (s[pos] == '#')
         {
             int start = pos;
@@ -96,6 +108,17 @@ public static class LockParser
                 return new DbrefLockNode(d);
 
             return new ConstantLockNode(false);
+        }
+
+        if (char.IsDigit(s[pos]) || (s[pos] == '-' && pos + 1 < s.Length && char.IsDigit(s[pos + 1])))
+        {
+            int start = pos;
+            if (s[pos] == '-') pos++;
+            while (pos < s.Length && char.IsDigit(s[pos]))
+                pos++;
+
+            if (int.TryParse(s.Substring(start, pos - start), out int dVal))
+                return new DbrefLockNode(new Dbref(dVal));
         }
 
         // Default or unparsed identifier
