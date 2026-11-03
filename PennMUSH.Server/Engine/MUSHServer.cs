@@ -3,6 +3,7 @@ namespace PennMUSH.Server.Engine;
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using PennMUSH.Core.Flags;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,8 +11,10 @@ using PennMUSH.Core.Commands;
 using PennMUSH.Core.Commands.Handlers;
 using PennMUSH.Core.Communication.Channels;
 using PennMUSH.Core.Communication.Mail;
+using PennMUSH.Core.Configuration;
 using PennMUSH.Core.Database;
 using PennMUSH.Core.Entities;
+using PennMUSH.Core.Help;
 using PennMUSH.Core.MUSHcode;
 using PennMUSH.Core.MUSHcode.Functions;
 using PennMUSH.Core.Queue;
@@ -25,20 +28,36 @@ public class MUSHServer
     private readonly ConcurrentDictionary<Dbref, string> _playerPasswords = new();
     private readonly CancellationTokenSource _cts = new();
 
+    public MushConfiguration Config { get; }
+    public string GameDirectory { get; }
+
     public ObjectDatabase Database { get; }
     public SqliteStore Storage { get; }
     public ActionQueue Queue { get; }
     public CronScheduler Cron { get; }
     public ChannelRegistry Channels { get; }
     public MailStore Mail { get; }
+    public HelpStore Help { get; } = new();
     public FunctionRegistry Functions { get; }
     public ExpressionEvaluator Evaluator { get; }
     public CommandDispatcher Dispatcher { get; }
 
     public IReadOnlyCollection<MUSHConnection> Connections => _connections.Values.ToList();
 
-    public MUSHServer(string dbPath = "mush.db")
+    public MUSHServer(string dbPath = "mush.db", string? configPath = null)
     {
+        string? resolvedConfig = ResolveConfigPath(configPath);
+        if (resolvedConfig != null && File.Exists(resolvedConfig))
+        {
+            Config = MushConfigParser.ParseFile(resolvedConfig);
+            GameDirectory = Path.GetDirectoryName(Path.GetFullPath(resolvedConfig)) ?? Directory.GetCurrentDirectory();
+        }
+        else
+        {
+            Config = new MushConfiguration();
+            GameDirectory = Directory.GetCurrentDirectory();
+        }
+
         Database = new ObjectDatabase();
         Storage = new SqliteStore($"Data Source={dbPath}");
         Queue = new ActionQueue();
@@ -66,11 +85,44 @@ public class MUSHServer
         AsyncFunctions.Initialize(Queue);
         CronFunctions.Initialize(Cron);
 
+        string hlpDir = Path.Combine(GameDirectory, "txt", "hlp");
+        if (Directory.Exists(hlpDir))
+        {
+            Help.LoadFromDirectory(hlpDir);
+        }
+
         Dispatcher = new CommandDispatcher(Evaluator);
         RegisterCommands();
 
         // Start queue tick background task
         _ = Task.Run(() => QueueTickLoopAsync(_cts.Token));
+    }
+
+    private static string? ResolveConfigPath(string? configPath)
+    {
+        if (!string.IsNullOrEmpty(configPath) && File.Exists(configPath))
+        {
+            return Path.GetFullPath(configPath);
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "game", "mush.cnf"),
+            Path.Combine(AppContext.BaseDirectory, "mush.cnf"),
+            Path.Combine(Directory.GetCurrentDirectory(), "game", "mush.cnf"),
+            Path.Combine(Directory.GetCurrentDirectory(), "mush.cnf"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "game", "mush.cnf"))
+        };
+
+        foreach (var path in candidates)
+        {
+            if (File.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return null;
     }
 
     private void RegisterCommands()
@@ -102,11 +154,48 @@ public class MUSHServer
         Dispatcher.Register(new CemitCommandHandler(Channels), "@cemit");
         Dispatcher.Register(new MailCommandHandler(Mail), "@mail");
         Dispatcher.Register(new CronCommandHandler(Cron, Queue), "@cron");
+        Dispatcher.Register(new HelpCommandHandler(Help), "help");
+
+        // Apply aliases & reserved aliases from configuration
+        foreach (var (alias, orig) in Config.CommandAliases)
+        {
+            Dispatcher.AddAlias(orig, alias);
+        }
+
+        foreach (var reserved in Config.ReservedAliases)
+        {
+            Dispatcher.ReserveAlias(reserved);
+        }
+
+        foreach (var (alias, orig) in Config.FunctionAliases)
+        {
+            Functions.AddAlias(orig, alias);
+        }
+
+        foreach (var (cmd, rules) in Config.CommandRestrictions)
+        {
+            foreach (var rule in rules)
+            {
+                Dispatcher.AddRestriction(cmd, rule.Restriction, rule.ErrorMessage);
+            }
+        }
     }
 
     public void RegisterConnection(MUSHConnection conn)
     {
         _connections[conn.Id] = conn;
+
+        // Display connect screen
+        string connectPath = Path.Combine(GameDirectory, Config.ConnectFile);
+        if (File.Exists(connectPath))
+        {
+            _ = conn.SendRawAsync(File.ReadAllText(connectPath));
+        }
+        else
+        {
+            _ = conn.SendLineAsync($"=== Welcome to {Config.MudName} ===");
+            _ = conn.SendLineAsync("Valid commands: connect <name> <password>, create <name> <password>, WHO, QUIT");
+        }
     }
 
     public void UnregisterConnection(MUSHConnection conn)
@@ -136,7 +225,15 @@ public class MUSHServer
 
         if (trimmed.Equals("QUIT", StringComparison.OrdinalIgnoreCase))
         {
-            await conn.SendLineAsync("Goodbye!", ct);
+            string quitPath = Path.Combine(GameDirectory, Config.QuitFile);
+            if (File.Exists(quitPath))
+            {
+                await conn.SendRawAsync(File.ReadAllText(quitPath), ct);
+            }
+            else
+            {
+                await conn.SendLineAsync("Goodbye!", ct);
+            }
             conn.Close();
             return;
         }
@@ -168,7 +265,15 @@ public class MUSHServer
 
         if (cmd == "QUIT")
         {
-            await conn.SendLineAsync("Goodbye!", ct);
+            string quitPath = Path.Combine(GameDirectory, Config.QuitFile);
+            if (File.Exists(quitPath))
+            {
+                await conn.SendRawAsync(File.ReadAllText(quitPath), ct);
+            }
+            else
+            {
+                await conn.SendLineAsync("Goodbye!", ct);
+            }
             conn.Close();
             return;
         }
@@ -197,7 +302,24 @@ public class MUSHServer
                 }
 
                 conn.PlayerId = player.Id;
-                await conn.SendLineAsync($"Welcome back to PennMUSH, {player.Name}!", ct);
+                await conn.SendLineAsync($"Welcome back to {Config.MudName}, {player.Name}!", ct);
+
+                // Send MOTD
+                string motdPath = Path.Combine(GameDirectory, Config.MotdFile);
+                if (File.Exists(motdPath))
+                {
+                    await conn.SendRawAsync(File.ReadAllText(motdPath), ct);
+                }
+
+                // If Wizard or God, send Wizard MOTD
+                if (player.IsWizard || player.IsGod)
+                {
+                    string wizmotdPath = Path.Combine(GameDirectory, Config.WizmotdFile);
+                    if (File.Exists(wizmotdPath))
+                    {
+                        await conn.SendRawAsync(File.ReadAllText(wizmotdPath), ct);
+                    }
+                }
 
                 // Auto-join Public channel
                 var pubCh = Channels.GetChannel("Public");
@@ -238,13 +360,20 @@ public class MUSHServer
             newPlayer.Owner = newPlayer.Id;
             newPlayer.Location = new Dbref(0);
             newPlayer.Home = new Dbref(0);
-            newPlayer.Pennies = 100;
+            newPlayer.Pennies = Config.StartingMoney;
             _playerPasswords[newPlayer.Id] = password;
 
             Storage.Save(Database);
 
             conn.PlayerId = newPlayer.Id;
-            await conn.SendLineAsync($"Character {name} created! Welcome to PennMUSH.", ct);
+            await conn.SendLineAsync($"Character {name} created! Welcome to {Config.MudName}.", ct);
+
+            // Send New User greeting
+            string newuserPath = Path.Combine(GameDirectory, Config.NewuserFile);
+            if (File.Exists(newuserPath))
+            {
+                await conn.SendRawAsync(File.ReadAllText(newuserPath), ct);
+            }
 
             var pubCh = Channels.GetChannel("Public");
             pubCh?.AddMember(newPlayer.Id);

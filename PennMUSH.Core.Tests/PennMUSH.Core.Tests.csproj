@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -21,6 +21,10 @@
   <ItemGroup>
     <ProjectReference Include="..\PennMUSH.Core\PennMUSH.Core.csproj" />
     <ProjectReference Include="..\PennMUSH.Server\PennMUSH.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\game\**" Link="game\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -24,6 +24,16 @@ public class FunctionRegistry
         _functions[name] = function;
     }
 
+    public bool AddAlias(string original, string alias)
+    {
+        if (_functions.TryGetValue(original, out var func))
+        {
+            _functions[alias] = func;
+            return true;
+        }
+        return false;
+    }
+
     public bool HasFunction(string name) => _functions.ContainsKey(name);
 
     public string Dispatch(string functionName, EvaluationContext context, string[] args)

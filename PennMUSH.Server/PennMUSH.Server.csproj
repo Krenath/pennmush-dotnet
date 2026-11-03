@@ -4,6 +4,10 @@
     <ProjectReference Include="..\PennMUSH.Core\PennMUSH.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\game\**" Link="game\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>

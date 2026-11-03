@@ -47,13 +47,18 @@ public class MUSHConnection
 
     public async Task SendLineAsync(string text, CancellationToken ct = default)
     {
+        await SendRawAsync(text + "\r\n", ct);
+    }
+
+    public async Task SendRawAsync(string text, CancellationToken ct = default)
+    {
         string formatted = OutputFormatter.FormatOutput(text, Capabilities);
         if (_onSendLine != null)
         {
             await _onSendLine(formatted);
             return;
         }
-        byte[] bytes = Encoding.UTF8.GetBytes(formatted + "\r\n");
+        byte[] bytes = Encoding.UTF8.GetBytes(formatted);
         await SendRawAsync(bytes, ct);
     }
 

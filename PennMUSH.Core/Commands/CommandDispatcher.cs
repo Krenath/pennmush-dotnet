@@ -10,8 +10,11 @@ using PennMUSH.Core.Types;
 
 public class CommandDispatcher
 {
-    private readonly Dictionary<string, ICommandHandler> _handlers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CommandTable _commandTable = new();
+    private readonly Dictionary<string, List<(string Restriction, string? ErrorMessage)>> _restrictions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ExpressionEvaluator? _evaluator;
+
+    public CommandTable Table => _commandTable;
 
     public CommandDispatcher(ExpressionEvaluator? evaluator = null)
     {
@@ -20,92 +23,130 @@ public class CommandDispatcher
 
     public void Register(ICommandHandler handler, params string[] aliases)
     {
-        _handlers[handler.Name] = handler;
-        foreach (var alias in aliases)
-            _handlers[alias] = handler;
+        _commandTable.Register(handler, aliases);
+    }
+
+    public bool AddAlias(string originalCommand, string alias)
+    {
+        return _commandTable.AddAlias(originalCommand, alias);
+    }
+
+    public void ReserveAlias(string alias)
+    {
+        _commandTable.ReserveAlias(alias);
+    }
+
+    public void AddRestriction(string commandName, string restriction, string? customErrorMessage = null)
+    {
+        if (!_restrictions.TryGetValue(commandName, out var list))
+        {
+            list = new List<(string, string?)>();
+            _restrictions[commandName] = list;
+        }
+        list.Add((restriction, customErrorMessage));
     }
 
     public CommandContext Dispatch(Dbref executor, string input, ObjectDatabase db)
     {
         var context = Parse(executor, input);
-        if (_handlers.TryGetValue(context.CommandName, out var handler))
+        if (string.IsNullOrEmpty(context.CommandName))
         {
-            handler.Execute(context, db);
+            return context;
         }
-        else if (!string.IsNullOrEmpty(context.CommandName))
+
+        var execObj = db.GetObject(executor);
+        var lookup = _commandTable.Lookup(context.CommandName);
+
+        if (lookup.Status == CommandLookupStatus.Found && lookup.Handler != null)
         {
-            var execObj = db.GetObject(executor);
-
-            // 1. Check implicit exit matching in executor's location
-            if (execObj != null && execObj.Location.IsValid)
-            {
-                var exitObj = db.FindExit(execObj.Location, context.CommandName);
-                if (exitObj != null && _handlers.TryGetValue("go", out var goHandler))
-                {
-                    var goCtx = new CommandContext
-                    {
-                        Executor = executor,
-                        Enactor = executor,
-                        RawCommand = input,
-                        CommandName = "go",
-                        Arguments = context.CommandName,
-                        LeftArg = context.CommandName
-                    };
-                    goHandler.Execute(goCtx, db);
-                    foreach (var note in goCtx.Notifications)
-                        context.Notify(note);
-                    return context;
-                }
-            }
-
-            // 2. Check channel prefix (+channel message or +channel/who)
-            if (context.CommandName.StartsWith('+') && context.CommandName.Length > 1)
-            {
-                string chName = context.CommandName.Substring(1);
-                if (context.Switches.Count > 0 && _handlers.TryGetValue("@channel", out var chHandler))
-                {
-                    var chCtx = new CommandContext
-                    {
-                        Executor = executor,
-                        Enactor = executor,
-                        RawCommand = input,
-                        CommandName = "@channel",
-                        Switches = context.Switches,
-                        Arguments = chName,
-                        LeftArg = chName,
-                        RightArg = context.Arguments
-                    };
-                    chHandler.Execute(chCtx, db);
-                    foreach (var note in chCtx.Notifications) context.Notify(note);
-                    return context;
-                }
-                else if (_handlers.TryGetValue("@chat", out var chatHandler))
-                {
-                    var chatCtx = new CommandContext
-                    {
-                        Executor = executor,
-                        Enactor = executor,
-                        RawCommand = input,
-                        CommandName = "@chat",
-                        LeftArg = chName,
-                        RightArg = context.Arguments,
-                        Arguments = $"{chName}={context.Arguments}"
-                    };
-                    chatHandler.Execute(chatCtx, db);
-                    foreach (var note in chatCtx.Notifications) context.Notify(note);
-                    return context;
-                }
-            }
-
-            // 3. Check $command:action listeners
-            if (execObj != null && TryMatchCommandListener(execObj, input, db, context))
+            if (execObj != null && !CheckRestrictions(execObj, lookup.CanonicalName ?? context.CommandName, context))
             {
                 return context;
             }
 
-            context.Notify("Huh?  (Type \"help\" for help.)");
+            lookup.Handler.Execute(context, db);
+            return context;
         }
 
+        if (lookup.Status == CommandLookupStatus.Ambiguous)
+        {
+            context.Notify("Which of those commands do you mean?");
+            return context;
+        }
+
+        // Status is NotFound or Reserved: try non-command fallbacks
+        // 1. Check implicit exit matching in executor's location
+        if (execObj != null && execObj.Location.IsValid)
+        {
+            var exitObj = db.FindExit(execObj.Location, context.CommandName);
+            var goLookup = _commandTable.Lookup("go");
+            if (exitObj != null && goLookup.Status == CommandLookupStatus.Found && goLookup.Handler != null)
+            {
+                var goCtx = new CommandContext
+                {
+                    Executor = executor,
+                    Enactor = executor,
+                    RawCommand = input,
+                    CommandName = "go",
+                    Arguments = context.CommandName,
+                    LeftArg = context.CommandName
+                };
+                goLookup.Handler.Execute(goCtx, db);
+                foreach (var note in goCtx.Notifications)
+                    context.Notify(note);
+                return context;
+            }
+        }
+
+        // 2. Check channel prefix (+channel message or +channel/who)
+        if (context.CommandName.StartsWith('+') && context.CommandName.Length > 1)
+        {
+            string chName = context.CommandName.Substring(1);
+            var chanLookup = _commandTable.Lookup("@channel");
+            var chatLookup = _commandTable.Lookup("@chat");
+
+            if (context.Switches.Count > 0 && chanLookup.Status == CommandLookupStatus.Found && chanLookup.Handler != null)
+            {
+                var chCtx = new CommandContext
+                {
+                    Executor = executor,
+                    Enactor = executor,
+                    RawCommand = input,
+                    CommandName = "@channel",
+                    Switches = context.Switches,
+                    Arguments = chName,
+                    LeftArg = chName,
+                    RightArg = context.Arguments
+                };
+                chanLookup.Handler.Execute(chCtx, db);
+                foreach (var note in chCtx.Notifications) context.Notify(note);
+                return context;
+            }
+            else if (chatLookup.Status == CommandLookupStatus.Found && chatLookup.Handler != null)
+            {
+                var chatCtx = new CommandContext
+                {
+                    Executor = executor,
+                    Enactor = executor,
+                    RawCommand = input,
+                    CommandName = "@chat",
+                    LeftArg = chName,
+                    RightArg = context.Arguments,
+                    Arguments = $"{chName}={context.Arguments}"
+                };
+                chatLookup.Handler.Execute(chatCtx, db);
+                foreach (var note in chatCtx.Notifications) context.Notify(note);
+                return context;
+            }
+        }
+
+        // 3. Check $command:action listeners
+        if (execObj != null && TryMatchCommandListener(execObj, input, db, context))
+        {
+            return context;
+        }
+
+        context.Notify("Huh?  (Type \"help\" for help.)");
         return context;
     }
 
@@ -168,7 +209,6 @@ public class CommandDispatcher
             string evaluated = _evaluator.Evaluate(action, evalCtx);
             if (!string.IsNullOrWhiteSpace(evaluated))
             {
-                // If the evaluated action starts with an in-game command, dispatch it
                 if (evaluated.StartsWith('@') || evaluated.StartsWith('"') || evaluated.StartsWith(':') || evaluated.StartsWith(';'))
                 {
                     Dispatch(listener.Id, evaluated, db);
@@ -183,6 +223,54 @@ public class CommandDispatcher
         {
             context.Notify(action);
         }
+    }
+
+    private bool CheckRestrictions(MUSHObject executor, string canonicalName, CommandContext context)
+    {
+        if (!_restrictions.TryGetValue(canonicalName, out var list))
+            return true;
+
+        foreach (var (rule, customError) in list)
+        {
+            string r = rule.ToLowerInvariant();
+            if (r == "nobody")
+            {
+                context.Notify(customError ?? "Command disabled.");
+                return false;
+            }
+            if (r == "noguest" && executor.HasFlag("GUEST"))
+            {
+                context.Notify(customError ?? "Guests are not allowed to do that.");
+                return false;
+            }
+            if (r == "nofixed" && executor.HasFlag("FIXED"))
+            {
+                context.Notify(customError ?? "You can't do that while fixed!");
+                return false;
+            }
+            if (r == "nogagged" && executor.HasFlag("GAGGED"))
+            {
+                context.Notify(customError ?? "You cannot do that while gagged.");
+                return false;
+            }
+            if (r == "god" && !executor.IsGod)
+            {
+                context.Notify(customError ?? "Only God can do that.");
+                return false;
+            }
+            if (r == "wizard" && !executor.IsWizard)
+            {
+                context.Notify(customError ?? "Permission denied.");
+                return false;
+            }
+            if (r == "admin" && !(executor.IsWizard || executor.IsRoyalty))
+            {
+                context.Notify(customError ?? "Permission denied.");
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static CommandContext Parse(Dbref executor, string input)

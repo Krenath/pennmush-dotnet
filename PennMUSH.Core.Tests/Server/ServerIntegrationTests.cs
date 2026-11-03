@@ -147,4 +147,54 @@ public class ServerIntegrationTests
             }
         }
     }
+
+    [Fact]
+    public async Task MUSHServer_DeliversConnectScreenAndMotd()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"server_connect_{Guid.NewGuid():N}.db");
+        try
+        {
+            var server = new MUSHServer(dbPath);
+            var outputs = new List<string>();
+
+            var conn = new MUSHConnection(line =>
+            {
+                outputs.Add(line);
+                return Task.CompletedTask;
+            });
+
+            // On connection, connect screen should be delivered
+            server.RegisterConnection(conn);
+            Assert.NotEmpty(outputs);
+            Assert.Contains(outputs, o => o.Contains("connect") || o.Contains("PennMUSH"));
+
+            outputs.Clear();
+
+            // Connect as God (#1 "One", default empty or "one")
+            await server.HandleInputAsync(conn, "connect One one");
+            Assert.Contains(outputs, o => o.Contains("Welcome back to PennMUSH"));
+
+            outputs.Clear();
+
+            // Help
+            outputs.Clear();
+            await server.HandleInputAsync(conn, "help look");
+            Assert.NotEmpty(outputs);
+            Assert.Contains(outputs, o => o.Contains("LOOK") || o.Contains("look"));
+
+            // Quit
+            outputs.Clear();
+            await server.HandleInputAsync(conn, "QUIT");
+            Assert.Contains(outputs, o => o.Contains("Thank you for visiting") || o.Contains("Goodbye"));
+
+            server.Stop();
+        }
+        finally
+        {
+            if (File.Exists(dbPath))
+            {
+                try { File.Delete(dbPath); } catch { }
+            }
+        }
+    }
 }
