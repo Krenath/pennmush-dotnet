@@ -1,0 +1,58 @@
+namespace PennMUSH.Core.Commands.Handlers;
+
+using System;
+using PennMUSH.Core.Types;
+using PennMUSH.Core.Database;
+using PennMUSH.Core.Entities;
+
+public class TeleportCommandHandler : ICommandHandler
+{
+    public string Name => "@teleport";
+
+    public bool Execute(CommandContext context, ObjectDatabase db)
+    {
+        string targetStr;
+        string destStr;
+
+        if (string.IsNullOrWhiteSpace(context.RightArg))
+        {
+            targetStr = "me";
+            destStr = context.LeftArg;
+        }
+        else
+        {
+            targetStr = context.LeftArg;
+            destStr = context.RightArg;
+        }
+
+        if (string.IsNullOrWhiteSpace(destStr))
+        {
+            context.Notify("Where do you want to teleport to?");
+            return false;
+        }
+
+        var targetRef = ResolveDbref(targetStr, context.Executor);
+        var destRef = ResolveDbref(destStr, context.Executor);
+
+        var target = db.GetObject(targetRef);
+        var dest = db.GetObject(destRef);
+
+        if (target == null || dest == null)
+        {
+            context.Notify("I can't find that.");
+            return false;
+        }
+
+        target.Location = dest.Id;
+        context.Notify("Teleported.");
+        return true;
+    }
+
+    private static Dbref ResolveDbref(string s, Dbref executor)
+    {
+        if (s.Equals("me", StringComparison.OrdinalIgnoreCase)) return executor;
+        if (s.StartsWith('#') && int.TryParse(s.Substring(1), out int id)) return new Dbref(id);
+        if (int.TryParse(s, out int plainId)) return new Dbref(plainId);
+        return Dbref.Nothing;
+    }
+}

@@ -1,0 +1,44 @@
+/* PennMUSH Modern Web & Pueblo Stylesheet */
+
+body {
+    background-color: #121212;
+    color: #E0E0E0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 10px;
+}
+
+h1, .room-title {
+    color: #4CAF50;
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.room-desc {
+    color: #B0BEC5;
+    margin-bottom: 10px;
+}
+
+.contents, .exits {
+    color: #64B5F6;
+    margin-top: 5px;
+}
+
+.channel-msg {
+    color: #FFB74D;
+}
+
+.system-msg {
+    color: #9E9E9E;
+    font-style: italic;
+}
+
+.say-msg {
+    color: #81C784;
+}
+
+.pose-msg {
+    color: #BA68C8;
+}

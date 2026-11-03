@@ -1,0 +1,30 @@
+## Build and compilation artifacts
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio & IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Test Results and code coverage
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+coverage.cobertura.xml
+
+## Database and local runtime stores
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+mush.db*
+
+## OS generated files
+.DS_Store
+Thumbs.db
