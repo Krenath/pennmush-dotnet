@@ -84,6 +84,7 @@ public class GoCommandHandler : ICommandHandler
         }
 
         // Traversal success hooks
+        var srcRef = execObj.Location;
         var moveCtx = new EvaluationContext(context.Executor, context.Enactor, location: destRef);
         var succAttr = exitObj.GetAttribute("SUCC");
         if (succAttr != null && !string.IsNullOrWhiteSpace(succAttr.Value))
@@ -91,8 +92,22 @@ public class GoCommandHandler : ICommandHandler
             context.Notify(_evaluator != null ? _evaluator.Evaluate(succAttr.Value, moveCtx) : succAttr.Value);
         }
 
+        // Notify source room of departure
+        var osuccAttr = exitObj.GetAttribute("OSUCC");
+        string leaveMsg = osuccAttr != null && !string.IsNullOrWhiteSpace(osuccAttr.Value)
+            ? (_evaluator != null ? _evaluator.Evaluate(osuccAttr.Value, moveCtx) : osuccAttr.Value)
+            : $"{execObj.Name} leaves.";
+        context.NotifyExcept(srcRef, context.Executor, leaveMsg);
+
         // Move the player
         db.MoveObject(context.Executor, destRef);
+
+        // Notify destination room of arrival
+        var odropAttr = exitObj.GetAttribute("ODROP");
+        string arriveMsg = odropAttr != null && !string.IsNullOrWhiteSpace(odropAttr.Value)
+            ? (_evaluator != null ? _evaluator.Evaluate(odropAttr.Value, moveCtx) : odropAttr.Value)
+            : $"{execObj.Name} has arrived.";
+        context.NotifyExcept(destRef, context.Executor, arriveMsg);
 
         var dropAttr = exitObj.GetAttribute("DROP");
         if (dropAttr != null && !string.IsNullOrWhiteSpace(dropAttr.Value))

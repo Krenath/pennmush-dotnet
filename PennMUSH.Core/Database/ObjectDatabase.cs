@@ -239,4 +239,30 @@ public class ObjectDatabase
 
         return null;
     }
+
+    public MUSHObject? FindPlayer(string nameOrDbref)
+    {
+        if (string.IsNullOrWhiteSpace(nameOrDbref)) return null;
+        string search = nameOrDbref.Trim();
+        if (search.StartsWith('#') && int.TryParse(search.Substring(1), out int id))
+        {
+            var cand = GetObject(new Dbref(id));
+            if (cand != null && cand.Type == ObjectType.Player) return cand;
+        }
+
+        return _objects.FirstOrDefault(o => o != null && o.Type == ObjectType.Player &&
+            string.Equals(o.Name, search, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public MUSHObject? FindObject(string nameOrDbref)
+    {
+        if (string.IsNullOrWhiteSpace(nameOrDbref)) return null;
+        string search = nameOrDbref.Trim();
+        if (search.StartsWith('#') && int.TryParse(search.Substring(1), out int id))
+        {
+            return GetObject(new Dbref(id));
+        }
+
+        return _objects.FirstOrDefault(o => o != null && string.Equals(o.Name, search, StringComparison.OrdinalIgnoreCase));
+    }
 }

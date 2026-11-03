@@ -34,6 +34,7 @@ public class DropCommandHandler : ICommandHandler
 
         db.MoveObject(targetObj.Id, execObj.Location);
         context.Notify("Dropped.");
+        context.NotifyExcept(execObj.Location, context.Executor, $"{execObj.Name} drops {targetObj.Name}.");
         return true;
     }
 }

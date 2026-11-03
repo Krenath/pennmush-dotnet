@@ -14,7 +14,43 @@ public class CommandContext
     public string Arguments { get; init; } = string.Empty;
     public string LeftArg { get; init; } = string.Empty;
     public string RightArg { get; init; } = string.Empty;
+
+    public List<Notification> TargetedNotifications { get; } = new();
     public List<string> Notifications { get; } = new();
 
-    public void Notify(string message) => Notifications.Add(message);
+    public void Notify(string message)
+    {
+        TargetedNotifications.Add(new Notification(NotificationScope.Self, message, Executor));
+        Notifications.Add(message);
+    }
+
+    public void NotifyTarget(Dbref target, string message)
+    {
+        TargetedNotifications.Add(new Notification(NotificationScope.Target, message, target));
+        if (target == Executor)
+        {
+            Notifications.Add(message);
+        }
+    }
+
+    public void NotifyRoom(Dbref room, string message)
+    {
+        TargetedNotifications.Add(new Notification(NotificationScope.Room, message, room));
+        Notifications.Add(message);
+    }
+
+    public void NotifyExcept(Dbref room, Dbref except, string message)
+    {
+        TargetedNotifications.Add(new Notification(NotificationScope.RoomExcept, message, room, except));
+        if (except != Executor)
+        {
+            Notifications.Add(message);
+        }
+    }
+
+    public void NotifyBroadcast(string message, bool wizardOnly = false)
+    {
+        TargetedNotifications.Add(new Notification(wizardOnly ? NotificationScope.Wizards : NotificationScope.Broadcast, message));
+        Notifications.Add(message);
+    }
 }

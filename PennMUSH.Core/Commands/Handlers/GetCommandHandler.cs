@@ -40,6 +40,7 @@ public class GetCommandHandler : ICommandHandler
 
         db.MoveObject(targetObj.Id, context.Executor);
         context.Notify("Taken.");
+        context.NotifyExcept(execObj.Location, context.Executor, $"{execObj.Name} takes {targetObj.Name}.");
         return true;
     }
 }

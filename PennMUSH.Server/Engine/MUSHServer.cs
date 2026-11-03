@@ -155,6 +155,40 @@ public class MUSHServer
         Dispatcher.Register(new MailCommandHandler(Mail), "@mail");
         Dispatcher.Register(new CronCommandHandler(Cron, Queue), "@cron");
         Dispatcher.Register(new HelpCommandHandler(Help), "help");
+        Dispatcher.Register(new EmitCommandHandler(), "@emit", "\\");
+        Dispatcher.Register(new PemitCommandHandler(), "@pemit");
+        Dispatcher.Register(new RemitCommandHandler(), "@remit");
+        Dispatcher.Register(new OemitCommandHandler(), "@oemit");
+        Dispatcher.Register(new WallCommandHandler(), "@wall", "@wizwall", "@rwall");
+        Dispatcher.Register(new WhisperCommandHandler(), "whisper", "w");
+        Dispatcher.Register(new PageCommandHandler(), "page", "p");
+
+        // Spatial & Interaction
+        Dispatcher.Register(new HomeCommandHandler(new LookCommandHandler()), "home");
+        Dispatcher.Register(new EnterCommandHandler(), "enter");
+        Dispatcher.Register(new LeaveCommandHandler(), "leave");
+        Dispatcher.Register(new GiveCommandHandler(), "give");
+        Dispatcher.Register(new ExamineCommandHandler(), "examine", "ex");
+
+        // Scripting & Flow Control
+        Dispatcher.Register(new SwitchCommandHandler(Dispatcher, Evaluator), "@switch", "@sw");
+        Dispatcher.Register(new DolistCommandHandler(Dispatcher, Evaluator), "@dolist");
+        Dispatcher.Register(new TriggerCommandHandler(Dispatcher, Evaluator), "@trigger", "@tr");
+        Dispatcher.Register(new ForceCommandHandler(Dispatcher), "@force");
+        Dispatcher.Register(new IfElseCommandHandler(Dispatcher, Evaluator), "@ifelse", "@if");
+        Dispatcher.Register(new CommentCommandHandler(), "@@");
+
+        // Object Lifecycle & Admin
+        Dispatcher.Register(new DestroyCommandHandler(), "@destroy", "@recycle");
+        Dispatcher.Register(new CloneCommandHandler(), "@clone");
+        Dispatcher.Register(new ChownCommandHandler(), "@chown");
+        Dispatcher.Register(new WipeCommandHandler(), "@wipe");
+        Dispatcher.Register(new LockCommandHandler(), "@lock");
+        Dispatcher.Register(new UnlockCommandHandler(), "@unlock");
+        Dispatcher.Register(new StatsCommandHandler(), "@stats");
+        Dispatcher.Register(new ScoreCommandHandler(), "score");
+        Dispatcher.Register(new DoingCommandHandler(), "doing", "@poll");
+        Dispatcher.Register(new VersionCommandHandler(), "@version");
 
         // Apply aliases & reserved aliases from configuration
         foreach (var (alias, orig) in Config.CommandAliases)
@@ -246,9 +280,9 @@ public class MUSHServer
 
         // Dispatch in-game command
         var context = Dispatcher.Dispatch(conn.PlayerId, trimmed, Database);
-        foreach (var note in context.Notifications)
+        foreach (var note in context.TargetedNotifications)
         {
-            await conn.SendLineAsync(note, ct);
+            DispatchNotification(note);
         }
 
         // Auto-save periodically or after object state changes
@@ -358,10 +392,10 @@ public class MUSHServer
 
             var newPlayer = Database.CreateObject(name, ObjectType.Player, Dbref.Nothing);
             newPlayer.Owner = newPlayer.Id;
-            newPlayer.Location = new Dbref(0);
-            newPlayer.Home = new Dbref(0);
+            newPlayer.Home = Config.DefaultHome;
             newPlayer.Pennies = Config.StartingMoney;
             _playerPasswords[newPlayer.Id] = password;
+            Database.MoveObject(newPlayer.Id, Config.PlayerStart);
 
             Storage.Save(Database);
 
@@ -412,11 +446,58 @@ public class MUSHServer
         return $"{ts.Seconds}s";
     }
 
-    public void BroadcastToRoom(Dbref roomRef, string message, Dbref excludePlayerId = default)
+    public void DispatchNotification(Notification notification)
+    {
+        switch (notification.Scope)
+        {
+            case NotificationScope.Self:
+            case NotificationScope.Target:
+                if (notification.Target.IsValid)
+                {
+                    SendToPlayer(notification.Target, notification.Message);
+                }
+                break;
+
+            case NotificationScope.Room:
+                if (notification.Target.IsValid)
+                {
+                    SendToRoom(notification.Target, notification.Message);
+                }
+                break;
+
+            case NotificationScope.RoomExcept:
+                if (notification.Target.IsValid)
+                {
+                    SendToRoom(notification.Target, notification.Message, notification.Except);
+                }
+                break;
+
+            case NotificationScope.Broadcast:
+                SendToAll(notification.Message);
+                break;
+
+            case NotificationScope.Wizards:
+                SendToWizards(notification.Message);
+                break;
+        }
+    }
+
+    public void SendToPlayer(Dbref player, string message)
     {
         foreach (var c in _connections.Values)
         {
-            if (c.PlayerId.IsValid && c.PlayerId != excludePlayerId)
+            if (c.PlayerId == player)
+            {
+                _ = c.SendLineAsync(message);
+            }
+        }
+    }
+
+    public void SendToRoom(Dbref roomRef, string message, Dbref excludePlayerId = default)
+    {
+        foreach (var c in _connections.Values)
+        {
+            if (c.PlayerId.IsValid && (!excludePlayerId.IsValid || c.PlayerId != excludePlayerId))
             {
                 var p = Database.GetObject(c.PlayerId);
                 if (p != null && p.Location == roomRef)
@@ -427,6 +508,37 @@ public class MUSHServer
         }
     }
 
+    public void SendToAll(string message)
+    {
+        foreach (var c in _connections.Values)
+        {
+            if (c.PlayerId.IsValid)
+            {
+                _ = c.SendLineAsync(message);
+            }
+        }
+    }
+
+    public void SendToWizards(string message)
+    {
+        foreach (var c in _connections.Values)
+        {
+            if (c.PlayerId.IsValid)
+            {
+                var p = Database.GetObject(c.PlayerId);
+                if (p != null && (p.IsWizard || p.IsGod))
+                {
+                    _ = c.SendLineAsync(message);
+                }
+            }
+        }
+    }
+
+    public void BroadcastToRoom(Dbref roomRef, string message, Dbref excludePlayerId = default)
+    {
+        SendToRoom(roomRef, message, excludePlayerId);
+    }
+
     private async Task QueueTickLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -434,7 +546,14 @@ public class MUSHServer
             try
             {
                 Cron.ProcessDueJobs(DateTimeOffset.UtcNow, Queue);
-                Queue.ProcessReady(DateTimeOffset.UtcNow, Dispatcher, Database);
+                var readyContexts = Queue.ProcessReady(DateTimeOffset.UtcNow, Dispatcher, Database);
+                foreach (var ctx in readyContexts)
+                {
+                    foreach (var note in ctx.TargetedNotifications)
+                    {
+                        DispatchNotification(note);
+                    }
+                }
             }
             catch
             {

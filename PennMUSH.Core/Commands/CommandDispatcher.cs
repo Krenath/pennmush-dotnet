@@ -92,8 +92,10 @@ public class CommandDispatcher
                     LeftArg = context.CommandName
                 };
                 goLookup.Handler.Execute(goCtx, db);
+                foreach (var note in goCtx.TargetedNotifications)
+                    context.TargetedNotifications.Add(note);
                 foreach (var note in goCtx.Notifications)
-                    context.Notify(note);
+                    context.Notifications.Add(note);
                 return context;
             }
         }
@@ -119,7 +121,8 @@ public class CommandDispatcher
                     RightArg = context.Arguments
                 };
                 chanLookup.Handler.Execute(chCtx, db);
-                foreach (var note in chCtx.Notifications) context.Notify(note);
+                foreach (var note in chCtx.TargetedNotifications) context.TargetedNotifications.Add(note);
+                foreach (var note in chCtx.Notifications) context.Notifications.Add(note);
                 return context;
             }
             else if (chatLookup.Status == CommandLookupStatus.Found && chatLookup.Handler != null)
@@ -135,7 +138,8 @@ public class CommandDispatcher
                     Arguments = $"{chName}={context.Arguments}"
                 };
                 chatLookup.Handler.Execute(chatCtx, db);
-                foreach (var note in chatCtx.Notifications) context.Notify(note);
+                foreach (var note in chatCtx.TargetedNotifications) context.TargetedNotifications.Add(note);
+                foreach (var note in chatCtx.Notifications) context.Notifications.Add(note);
                 return context;
             }
         }
@@ -282,15 +286,25 @@ public class CommandDispatcher
         string cmdToken;
         string args = string.Empty;
 
-        // Shortcut prefixes: " for say, : for pose, ; for semipose
+        // Shortcut prefixes: " for say, : for pose, ; for semipose, \ for @emit
         if (trimmed.StartsWith('\"') || trimmed.StartsWith('\''))
         {
             cmdToken = "say";
             args = trimmed.Substring(1);
         }
-        else if (trimmed.StartsWith(':') || trimmed.StartsWith(';'))
+        else if (trimmed.StartsWith('\\'))
+        {
+            cmdToken = "@emit";
+            args = trimmed.Substring(1);
+        }
+        else if (trimmed.StartsWith(':'))
         {
             cmdToken = "pose";
+            args = trimmed.Substring(1);
+        }
+        else if (trimmed.StartsWith(';'))
+        {
+            cmdToken = ";";
             args = trimmed.Substring(1);
         }
         else

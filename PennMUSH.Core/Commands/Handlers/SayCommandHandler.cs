@@ -8,7 +8,22 @@ public class SayCommandHandler : ICommandHandler
 
     public bool Execute(CommandContext context, ObjectDatabase db)
     {
-        context.Notify($"You say, \"{context.Arguments}\"");
+        if (string.IsNullOrEmpty(context.Arguments))
+        {
+            context.Notify("Say what?");
+            return false;
+        }
+
+        string message = context.Arguments;
+        context.Notify($"You say, \"{message}\"");
+
+        var execObj = db.GetObject(context.Executor);
+        if (execObj != null && execObj.Location.IsValid)
+        {
+            string name = execObj.Name;
+            context.NotifyExcept(execObj.Location, context.Executor, $"{name} says, \"{message}\"");
+        }
+
         return true;
     }
 }
