@@ -45,8 +45,8 @@ app.MapGet("/health", (MUSHServer server) =>
     });
 });
 
-// WebSocket Gateway Endpoint (/ws)
-app.Map("/ws", async (HttpContext context, MUSHServer server) =>
+// WebSocket Gateway Endpoints (/ws and /game for backward compatibility)
+var handleWebSocket = async (HttpContext context, MUSHServer server) =>
 {
     if (context.WebSockets.IsWebSocketRequest)
     {
@@ -89,6 +89,29 @@ app.Map("/ws", async (HttpContext context, MUSHServer server) =>
     {
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
         await context.Response.WriteAsync("Expected WebSocket connection.");
+    }
+};
+
+app.Map("/ws", handleWebSocket);
+app.Map("/game", handleWebSocket);
+
+// Optional API endpoint (/api) for legacy dual-socket MUjs configurations
+app.Map("/api", async (HttpContext context) =>
+{
+    if (context.WebSockets.IsWebSocketRequest)
+    {
+        using var ws = await context.WebSockets.AcceptWebSocketAsync();
+        var buf = new byte[1024];
+        while (ws.State == WebSocketState.Open)
+        {
+            var r = await ws.ReceiveAsync(new ArraySegment<byte>(buf), CancellationToken.None);
+            if (r.MessageType == WebSocketMessageType.Close) break;
+        }
+    }
+    else
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        await context.Response.WriteAsync("MUjs API Endpoint Active.");
     }
 });
 
