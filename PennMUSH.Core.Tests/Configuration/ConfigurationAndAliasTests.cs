@@ -173,6 +173,80 @@ public class ConfigurationAndAliasTests
         Assert.Equal("2", modResult);
     }
 
+    [Fact]
+    public void CommandTable_AliasPrefixMatching_MatchesCanonicalHandler()
+    {
+        var table = new CommandTable();
+        table.Register(new GetCommandHandler(), "get", "take");
+
+        // "tak" should prefix match the alias "take", resolving to canonical "get"
+        var prefixResult = table.Lookup("tak");
+        Assert.Equal(CommandLookupStatus.Found, prefixResult.Status);
+        Assert.Equal("get", prefixResult.CanonicalName);
+    }
+
+    [Fact]
+    public void LookCommand_LookAtPlayerByName_Succeeds()
+    {
+        var db = new ObjectDatabase();
+        var room = db.CreateObject("Room Zero", ObjectType.Room, Dbref.Nothing);
+        var wizard = db.CreateObject("One", ObjectType.Player, Dbref.Nothing);
+        wizard.Location = room.Id;
+        var user = db.CreateObject("Krenath", ObjectType.Player, Dbref.Nothing);
+        user.Location = room.Id;
+
+        var dispatcher = new CommandDispatcher();
+        dispatcher.Register(new LookCommandHandler(), "look", "l");
+
+        // Test "l Krenath" and "look Krenath"
+        var ctx1 = dispatcher.Dispatch(wizard.Id, "l Krenath", db);
+        Assert.Contains("Krenath", ctx1.Notifications);
+        Assert.Contains("You see nothing special.", ctx1.Notifications);
+        Assert.DoesNotContain("I can't see that here.", ctx1.Notifications);
+
+        var ctx2 = dispatcher.Dispatch(wizard.Id, "look Krenath", db);
+        Assert.Contains("Krenath", ctx2.Notifications);
+        Assert.Contains("You see nothing special.", ctx2.Notifications);
+        Assert.DoesNotContain("I can't see that here.", ctx2.Notifications);
+    }
+
+    [Fact]
+    public void ExamineCommand_AliasedAsX_Succeeds()
+    {
+        var db = new ObjectDatabase();
+        var room = db.CreateObject("Room Zero", ObjectType.Room, Dbref.Nothing);
+        var wizard = db.CreateObject("One", ObjectType.Player, Dbref.Nothing);
+        wizard.Location = room.Id;
+        var user = db.CreateObject("Krenath", ObjectType.Player, Dbref.Nothing);
+        user.Location = room.Id;
+
+        var dispatcher = new CommandDispatcher();
+        dispatcher.Register(new ExamineCommandHandler(), "examine", "ex", "x");
+
+        var ctx = dispatcher.Dispatch(wizard.Id, "x Krenath", db);
+        Assert.Contains(ctx.Notifications, n => n.Contains("Krenath (#4)") || n.Contains("Krenath"));
+        Assert.Contains(ctx.Notifications, n => n.Contains("Type: Player"));
+    }
+
+    [Fact]
+    public void SetCommand_ByName_Succeeds()
+    {
+        var db = new ObjectDatabase();
+        var room = db.CreateObject("Room Zero", ObjectType.Room, Dbref.Nothing);
+        var wizard = db.CreateObject("One", ObjectType.Player, Dbref.Nothing);
+        wizard.Location = room.Id;
+        wizard.AddFlag("WIZARD");
+        var user = db.CreateObject("Krenath", ObjectType.Player, Dbref.Nothing);
+        user.Location = room.Id;
+
+        var dispatcher = new CommandDispatcher();
+        dispatcher.Register(new SetCommandHandler(), "@set");
+
+        var ctx = dispatcher.Dispatch(wizard.Id, "@set Krenath=WIZARD", db);
+        Assert.Contains("Set.", ctx.Notifications);
+        Assert.True(user.HasFlag("WIZARD"));
+    }
+
     private class TestCommand : ICommandHandler
     {
         public string Name { get; }

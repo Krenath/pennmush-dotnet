@@ -133,7 +133,7 @@ public class MUSHServer
     {
         Dispatcher.Register(new SayCommandHandler(), "say", "\"", "'");
         Dispatcher.Register(new PoseCommandHandler(), "pose", ":", ";");
-        Dispatcher.Register(new LookCommandHandler(), "look", "l");
+        Dispatcher.Register(new LookCommandHandler(Evaluator), "look", "l", "read");
         Dispatcher.Register(new GoCommandHandler(), "go", "goto", "move");
         Dispatcher.Register(new DigCommandHandler(), "@dig");
         Dispatcher.Register(new OpenCommandHandler(), "@open");
@@ -148,17 +148,17 @@ public class MUSHServer
         Dispatcher.Register(new WaitCommandHandler(Queue), "@wait", "@notify");
         Dispatcher.Register(new HaltCommandHandler(Queue), "@halt");
         Dispatcher.Register(new AllHaltCommandHandler(Queue), "@allhalt");
-        Dispatcher.Register(new ThinkCommandHandler(Evaluator), "think");
+        Dispatcher.Register(new ThinkCommandHandler(Evaluator), "think", "th");
         Dispatcher.Register(new TeleportCommandHandler(), "@teleport", "@tel");
-        Dispatcher.Register(new GetCommandHandler(), "get", "take");
-        Dispatcher.Register(new DropCommandHandler(), "drop", "throw");
-        Dispatcher.Register(new InventoryCommandHandler(), "inventory", "i");
+        Dispatcher.Register(new GetCommandHandler(), "get", "take", "g");
+        Dispatcher.Register(new DropCommandHandler(), "drop", "throw", "d");
+        Dispatcher.Register(new InventoryCommandHandler(), "inventory", "i", "inv");
         Dispatcher.Register(new ChannelCommandHandler(Channels), "@channel");
         Dispatcher.Register(new ChatCommandHandler(Channels), "@chat", "+c");
         Dispatcher.Register(new CemitCommandHandler(Channels), "@cemit");
         Dispatcher.Register(new MailCommandHandler(Mail), "@mail");
         Dispatcher.Register(new CronCommandHandler(Cron, Queue), "@cron");
-        Dispatcher.Register(new HelpCommandHandler(Help), "help");
+        Dispatcher.Register(new HelpCommandHandler(Help), "help", "?");
         Dispatcher.Register(new EmitCommandHandler(), "@emit", "\\");
         Dispatcher.Register(new PemitCommandHandler(), "@pemit");
         Dispatcher.Register(new RemitCommandHandler(), "@remit");
@@ -168,11 +168,11 @@ public class MUSHServer
         Dispatcher.Register(new PageCommandHandler(), "page", "p");
 
         // Spatial & Interaction
-        Dispatcher.Register(new HomeCommandHandler(new LookCommandHandler()), "home");
+        Dispatcher.Register(new HomeCommandHandler(new LookCommandHandler(Evaluator)), "home");
         Dispatcher.Register(new EnterCommandHandler(), "enter");
         Dispatcher.Register(new LeaveCommandHandler(), "leave");
         Dispatcher.Register(new GiveCommandHandler(), "give");
-        Dispatcher.Register(new ExamineCommandHandler(), "examine", "ex");
+        Dispatcher.Register(new ExamineCommandHandler(), "examine", "ex", "x");
 
         // Scripting & Flow Control
         Dispatcher.Register(new SwitchCommandHandler(Dispatcher, Evaluator), "@switch", "@sw");

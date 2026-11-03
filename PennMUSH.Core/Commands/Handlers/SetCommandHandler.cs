@@ -19,8 +19,7 @@ public class SetCommandHandler : ICommandHandler
             return false;
         }
 
-        Dbref targetRef = ResolveDbref(context.LeftArg, context.Executor);
-        var target = db.GetObject(targetRef);
+        var target = db.MatchObject(context.Executor, context.LeftArg);
         if (target == null)
         {
             context.Notify("I can't see that here.");

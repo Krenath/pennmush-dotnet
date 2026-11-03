@@ -208,27 +208,7 @@ public class ExamineCommandHandler : ICommandHandler
         if (execObj == null) return false;
 
         string targetStr = string.IsNullOrWhiteSpace(context.Arguments) ? "here" : context.Arguments.Trim();
-        MUSHObject? target = null;
-
-        if (targetStr.Equals("here", StringComparison.OrdinalIgnoreCase))
-        {
-            target = db.GetObject(execObj.Location);
-        }
-        else if (targetStr.Equals("me", StringComparison.OrdinalIgnoreCase))
-        {
-            target = execObj;
-        }
-        else if (targetStr.StartsWith('#') && int.TryParse(targetStr.Substring(1), out int id))
-        {
-            target = db.GetObject(new Dbref(id));
-        }
-        else
-        {
-            target = db.FindInContents(context.Executor, targetStr) ??
-                     (execObj.Location.IsValid ? db.FindInContents(execObj.Location, targetStr) : null) ??
-                     db.FindPlayer(targetStr) ??
-                     db.FindObject(targetStr);
-        }
+        var target = db.MatchObject(context.Executor, targetStr);
 
         if (target == null)
         {

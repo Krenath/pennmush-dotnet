@@ -81,16 +81,16 @@ public class CommandTable
 
         string normalized = input.Trim().ToLowerInvariant();
 
-        // 1. Exact match has top priority
-        if (_exactCommands.TryGetValue(normalized, out var exact))
-        {
-            return new CommandLookupResult(CommandLookupStatus.Found, exact.Handler, exact.CanonicalName, normalized);
-        }
-
-        // 2. Check if alias is reserved (e.g. 'n', 's', 'e', 'w' for exits)
+        // 1. Reserved aliases (e.g. 'n', 's', 'e', 'w' for exits)
         if (IsReserved(normalized))
         {
             return new CommandLookupResult(CommandLookupStatus.Reserved, MatchedName: normalized);
+        }
+
+        // 2. Exact match has priority over prefixes
+        if (_exactCommands.TryGetValue(normalized, out var exact))
+        {
+            return new CommandLookupResult(CommandLookupStatus.Found, exact.Handler, exact.CanonicalName, normalized);
         }
 
         // 3. Prefix search in Trie
@@ -141,7 +141,7 @@ public class CommandTable
 
     private void CollectMatches(TrieNode node, Dictionary<string, (ICommandHandler Handler, string CanonicalName)> matches)
     {
-        if (node.Handler != null && node.CanonicalName != null && node.IsPrimary)
+        if (node.Handler != null && node.CanonicalName != null)
         {
             matches[node.CanonicalName] = (node.Handler, node.CanonicalName);
         }

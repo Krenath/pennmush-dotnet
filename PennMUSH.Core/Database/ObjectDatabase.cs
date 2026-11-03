@@ -265,4 +265,74 @@ public class ObjectDatabase
 
         return _objects.FirstOrDefault(o => o != null && string.Equals(o.Name, search, StringComparison.OrdinalIgnoreCase));
     }
+
+    public MUSHObject? MatchObject(Dbref executor, string nameOrDbref)
+    {
+        if (string.IsNullOrWhiteSpace(nameOrDbref)) return null;
+        string search = nameOrDbref.Trim();
+
+        var execObj = GetObject(executor);
+
+        if (search.Equals("here", StringComparison.OrdinalIgnoreCase))
+        {
+            return execObj != null && execObj.Location.IsValid ? GetObject(execObj.Location) : null;
+        }
+
+        if (search.Equals("me", StringComparison.OrdinalIgnoreCase))
+        {
+            return execObj;
+        }
+
+        if (search.StartsWith('*'))
+        {
+            return FindPlayer(search.Substring(1));
+        }
+
+        if (search.StartsWith('#') && int.TryParse(search.Substring(1), out int id))
+        {
+            return GetObject(new Dbref(id));
+        }
+
+        if (int.TryParse(search, out int plainId))
+        {
+            return GetObject(new Dbref(plainId));
+        }
+
+        // 1. Check contents of current room (other players, objects)
+        if (execObj != null && execObj.Location.IsValid)
+        {
+            var inRoom = FindInContents(execObj.Location, search);
+            if (inRoom != null) return inRoom;
+
+            // Check if current room matches
+            var room = GetObject(execObj.Location);
+            if (room != null && (room.Name.Equals(search, StringComparison.OrdinalIgnoreCase) ||
+                                 room.Name.StartsWith(search, StringComparison.OrdinalIgnoreCase)))
+            {
+                return room;
+            }
+
+            // Check exits in room
+            var exit = FindExit(execObj.Location, search);
+            if (exit != null) return exit;
+        }
+
+        // 2. Check inventory
+        var inInv = FindInContents(executor, search);
+        if (inInv != null) return inInv;
+
+        // 3. Check executor by name
+        if (execObj != null && (execObj.Name.Equals(search, StringComparison.OrdinalIgnoreCase) ||
+                                execObj.Name.StartsWith(search, StringComparison.OrdinalIgnoreCase)))
+        {
+            return execObj;
+        }
+
+        // 4. Check player by name globally
+        var player = FindPlayer(search);
+        if (player != null) return player;
+
+        // 5. Global object lookup
+        return FindObject(search);
+    }
 }

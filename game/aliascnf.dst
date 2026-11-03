@@ -52,7 +52,17 @@ command_alias @edit @gedit
 #command_alias look read 
 
 command_alias look l
+command_alias look read
 command_alias inventory i
+command_alias inventory inv
+command_alias examine ex
+command_alias examine x
+command_alias think th
+command_alias @trigger @tr
+command_alias @teleport @tel
+command_alias get g
+command_alias drop d
+command_alias @destroy @recycle
 command_alias @switch @sw
 command_alias page p
 command_alias whisper w
