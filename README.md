@@ -172,5 +172,8 @@ By default:
 
 ---
 
-## 📜 License
-PennMUSH .NET is released under the [Artistic License 2.0](https://opensource.org/licenses/Artistic-2.0), in alignment with the original PennMUSH project license.
+## 📜 License & Credits
+
+PennMUSH .NET is released under **The Artistic License**, maintaining strict licensing and attribution parity with the parent PennMUSH project.
+
+See [LICENSE](LICENSE) for the full terms of the Artistic License, and [COPYRITE](COPYRITE) for historical copyrights, derivations (TinyMUSH 2.0 / 2.2, TinyMUD), and upstream credits.
