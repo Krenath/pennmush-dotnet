@@ -1,0 +1,136 @@
+namespace PennMUSH.Core.MUSHcode.Functions;
+
+using System;
+using PennMUSH.Core.Commands;
+using PennMUSH.Core.Database;
+using PennMUSH.Core.Entities;
+using PennMUSH.Core.Protocol;
+using PennMUSH.Core.Types;
+
+public static class ClientFunctions
+{
+    private static Action<Notification>? _dispatcher;
+    private static EditorSessionManager _editorSessions = new();
+
+    public static void Initialize(Action<Notification> dispatcher, EditorSessionManager? editorSessions = null)
+    {
+        _dispatcher = dispatcher;
+        if (editorSessions != null) _editorSessions = editorSessions;
+    }
+
+    public static void Register(FunctionRegistry registry)
+    {
+        registry.Register("CEDIT", (ctx, args) => CEditFunc(registry, ctx, args));
+        registry.Register("CWINDOW", (ctx, args) => CWindowFunc(registry, ctx, args));
+        registry.Register("CSTYLE", (ctx, args) => CStyleFunc(registry, ctx, args));
+        registry.Register("CAUDIO", (ctx, args) => CAudioFunc(registry, ctx, args));
+        registry.Register("CEMIT", (ctx, args) => CEmitFunc(registry, ctx, args));
+    }
+
+    private static string CEditFunc(FunctionRegistry reg, EvaluationContext ctx, string[] args)
+    {
+        if (args.Length < 3) return "#-1 TOO FEW ARGUMENTS";
+
+        if (!Dbref.TryParse(args[0], out var player)) return "#-1 INVALID PLAYER";
+        if (!Dbref.TryParse(args[1], out var target)) return "#-1 INVALID TARGET";
+        string attribute = args[2].Trim();
+
+        var openPayload = _editorSessions.StartAttributeSession(player, target, attribute, reg.Database ?? new ObjectDatabase());
+        if (openPayload == null) return "#-1 PERMISSION DENIED";
+
+        _dispatcher?.Invoke(new Notification(
+            NotificationScope.Target,
+            $"[Client] Code editor opened for {openPayload.Title}.",
+            Target: player,
+            ProtocolType: "editor.open",
+            ProtocolPayload: openPayload
+        ));
+
+        return "1";
+    }
+
+    private static string CWindowFunc(FunctionRegistry reg, EvaluationContext ctx, string[] args)
+    {
+        if (args.Length < 5) return "#-1 TOO FEW ARGUMENTS";
+
+        if (!Dbref.TryParse(args[0], out var player)) return "#-1 INVALID PLAYER";
+        string windowId = args[1].Trim();
+        string target = args[2].Trim();
+        string action = args[3].Trim();
+        string html = args[4];
+        string? cssUrl = args.Length > 5 ? args[5].Trim() : null;
+
+        var payload = new WindowUpdatePayload(windowId, target, windowId, action, html, cssUrl);
+
+        _dispatcher?.Invoke(new Notification(
+            NotificationScope.Target,
+            $"[Client Window: {windowId} ({target}/{action})]",
+            Target: player,
+            ProtocolType: "window.update",
+            ProtocolPayload: payload
+        ));
+
+        return "1";
+    }
+
+    private static string CStyleFunc(FunctionRegistry reg, EvaluationContext ctx, string[] args)
+    {
+        if (args.Length < 2) return "#-1 TOO FEW ARGUMENTS";
+
+        if (!Dbref.TryParse(args[0], out var player)) return "#-1 INVALID PLAYER";
+        string url = args[1].Trim();
+
+        var payload = new StyleLoadPayload("style_" + Guid.NewGuid().ToString("N")[..8], url, "global");
+
+        _dispatcher?.Invoke(new Notification(
+            NotificationScope.Target,
+            $"[Client Style: {url}]",
+            Target: player,
+            ProtocolType: "style.load",
+            ProtocolPayload: payload
+        ));
+
+        return "1";
+    }
+
+    private static string CAudioFunc(FunctionRegistry reg, EvaluationContext ctx, string[] args)
+    {
+        if (args.Length < 2) return "#-1 TOO FEW ARGUMENTS";
+
+        if (!Dbref.TryParse(args[0], out var player)) return "#-1 INVALID PLAYER";
+        string url = args[1].Trim();
+        double vol = args.Length > 2 && double.TryParse(args[2], out var v) ? v : 1.0;
+        bool loop = args.Length > 3 && (args[3] == "1" || args[3].Equals("true", StringComparison.OrdinalIgnoreCase));
+
+        var payload = new AudioPlayPayload(url, vol, loop);
+
+        _dispatcher?.Invoke(new Notification(
+            NotificationScope.Target,
+            $"[Client Audio: {url}]",
+            Target: player,
+            ProtocolType: "audio.play",
+            ProtocolPayload: payload
+        ));
+
+        return "1";
+    }
+
+    private static string CEmitFunc(FunctionRegistry reg, EvaluationContext ctx, string[] args)
+    {
+        if (args.Length < 3) return "#-1 TOO FEW ARGUMENTS";
+
+        if (!Dbref.TryParse(args[0], out var player)) return "#-1 INVALID PLAYER";
+        string type = args[1].Trim();
+        string json = args[2].Trim();
+
+        _dispatcher?.Invoke(new Notification(
+            NotificationScope.Target,
+            $"[Client OOB: {type}]",
+            Target: player,
+            ProtocolType: type,
+            ProtocolPayload: json
+        ));
+
+        return "1";
+    }
+}

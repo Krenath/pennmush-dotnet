@@ -56,5 +56,6 @@ public class FunctionRegistry
         Functions.DbFunctions.Register(this);
         Functions.AsyncFunctions.Register(this);
         Functions.CronFunctions.Register(this);
+        Functions.ClientFunctions.Register(this);
     }
 }

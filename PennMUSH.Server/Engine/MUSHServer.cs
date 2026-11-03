@@ -17,6 +17,7 @@ using PennMUSH.Core.Entities;
 using PennMUSH.Core.Help;
 using PennMUSH.Core.MUSHcode;
 using PennMUSH.Core.MUSHcode.Functions;
+using PennMUSH.Core.Protocol;
 using PennMUSH.Core.Queue;
 using PennMUSH.Core.Scheduling;
 using PennMUSH.Core.Types;
@@ -38,6 +39,8 @@ public class MUSHServer
     public ChannelRegistry Channels { get; }
     public MailStore Mail { get; }
     public HelpStore Help { get; } = new();
+    public EditorSessionManager EditorSessions { get; } = new();
+    private readonly byte[] _tokenSecret = Guid.NewGuid().ToByteArray();
     public FunctionRegistry Functions { get; }
     public ExpressionEvaluator Evaluator { get; }
     public CommandDispatcher Dispatcher { get; }
@@ -84,6 +87,7 @@ public class MUSHServer
 
         AsyncFunctions.Initialize(Queue);
         CronFunctions.Initialize(Cron);
+        ClientFunctions.Initialize(DispatchNotification, EditorSessions);
 
         string hlpDir = Path.Combine(GameDirectory, "txt", "hlp");
         if (Directory.Exists(hlpDir))
@@ -189,6 +193,7 @@ public class MUSHServer
         Dispatcher.Register(new ScoreCommandHandler(), "score");
         Dispatcher.Register(new DoingCommandHandler(), "doing", "@poll");
         Dispatcher.Register(new VersionCommandHandler(), "@version");
+        Dispatcher.Register(new ClientCommandHandler(EditorSessions), "@client");
 
         // Apply aliases & reserved aliases from configuration
         foreach (var (alias, orig) in Config.CommandAliases)
@@ -249,6 +254,13 @@ public class MUSHServer
     {
         string trimmed = input.Trim();
         if (string.IsNullOrEmpty(trimmed)) return;
+
+        // Check for JSON protocol envelope (e.g. from MUjs)
+        if (trimmed.StartsWith('{') && ProtocolSerializer.TryParseType(trimmed, out var protoType, out var protoId))
+        {
+            await HandleProtocolEnvelopeAsync(conn, protoType!, protoId, trimmed, ct);
+            return;
+        }
 
         // If not logged in, handle login commands
         if (!conn.PlayerId.IsValid)
@@ -454,7 +466,7 @@ public class MUSHServer
             case NotificationScope.Target:
                 if (notification.Target.IsValid)
                 {
-                    SendToPlayer(notification.Target, notification.Message);
+                    SendToPlayer(notification.Target, notification.Message, notification.ProtocolType, notification.ProtocolPayload);
                 }
                 break;
 
@@ -482,14 +494,89 @@ public class MUSHServer
         }
     }
 
-    public void SendToPlayer(Dbref player, string message)
+    public void SendToPlayer(Dbref player, string message, string? protocolType = null, object? protocolPayload = null)
     {
         foreach (var c in _connections.Values)
         {
             if (c.PlayerId == player)
             {
-                _ = c.SendLineAsync(message);
+                if (protocolType != null && protocolPayload != null && c.ProtocolMode == ClientProtocolMode.MujsWebSocket)
+                {
+                    _ = c.SendEnvelopeAsync(protocolType, protocolPayload);
+                }
+                else
+                {
+                    _ = c.SendLineAsync(message);
+                }
             }
+        }
+    }
+
+    private async Task HandleProtocolEnvelopeAsync(MUSHConnection conn, string type, string? id, string json, CancellationToken ct)
+    {
+        switch (type.ToLowerInvariant())
+        {
+            case "client.hello":
+                var hello = ProtocolSerializer.DeserializePayload<ClientHelloPayload>(json);
+                if (hello != null)
+                {
+                    conn.ProtocolMode = ClientProtocolMode.MujsWebSocket;
+                    foreach (var cap in hello.Capabilities)
+                    {
+                        conn.ClientCapabilities.Add(cap);
+                    }
+
+                    string token = Convert.ToBase64String(System.Security.Cryptography.HMACSHA256.HashData(
+                        _tokenSecret,
+                        System.Text.Encoding.UTF8.GetBytes(conn.Id + ":" + DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+                    ));
+                    conn.SessionToken = token;
+
+                    var features = new ServerFeatures(
+                        MaxWindowCount: 8,
+                        SupportedLanguages: new[] { "mushcode", "csharp", "moocode" },
+                        AssetBaseUrl: !string.IsNullOrEmpty(Config.MudUrl) ? Config.MudUrl : "http://localhost:5000"
+                    );
+
+                    var serverHello = new ServerHelloPayload(
+                        Server: "pennmush-dotnet",
+                        Version: "1.0.0",
+                        SessionToken: token,
+                        Features: features
+                    );
+
+                    await conn.SendEnvelopeAsync("server.hello", serverHello, id, ct);
+                }
+                break;
+
+            case "terminal.input":
+                var terminalInput = ProtocolSerializer.DeserializePayload<TerminalInputPayload>(json);
+                if (terminalInput != null && !string.IsNullOrEmpty(terminalInput.Command))
+                {
+                    await HandleInputAsync(conn, terminalInput.Command, ct);
+                }
+                break;
+
+            case "editor.save":
+                var save = ProtocolSerializer.DeserializePayload<EditorSavePayload>(json);
+                if (save != null)
+                {
+                    var result = EditorSessions.SaveSession(save.SessionId, save.Code, Database, conn.PlayerId);
+                    await conn.SendEnvelopeAsync("editor.result", result, id, ct);
+                    if (result.Success)
+                    {
+                        Storage.Save(Database, Cron);
+                    }
+                }
+                break;
+
+            case "editor.close":
+                var close = ProtocolSerializer.DeserializePayload<EditorSavePayload>(json);
+                if (close != null)
+                {
+                    EditorSessions.CloseSession(close.SessionId);
+                }
+                break;
         }
     }
 

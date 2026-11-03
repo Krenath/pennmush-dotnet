@@ -53,4 +53,13 @@ public class CommandContext
         TargetedNotifications.Add(new Notification(wizardOnly ? NotificationScope.Wizards : NotificationScope.Broadcast, message));
         Notifications.Add(message);
     }
+
+    public void NotifyProtocol(Dbref target, string fallbackMessage, string protocolType, object protocolPayload)
+    {
+        TargetedNotifications.Add(new Notification(NotificationScope.Target, fallbackMessage, target, default, protocolType, protocolPayload));
+        if (target == Executor)
+        {
+            Notifications.Add(fallbackMessage);
+        }
+    }
 }
