@@ -16,9 +16,10 @@ PennMUSH .NET preserves backward compatibility with standard PennMUSH softcode a
 | **Runaway Protection** | Prone to infinite recursion crashes and ReDoS regex freezes | **Active call-trail cycle detection** + **100ms ReDoS timeout** + **queue flood throttle** |
 | **Object Inheritance** | Linear search through parents / zones with attribute shadowing quirks | **C3 Linearization (DAG)** for clean multi-parent and multi-zone attribute & lock resolution |
 | **Task Scheduling** | Fragile recursive `@wait` loops and external crontab wrappers | **Native 5-field Cron Engine** (`@cron`, `cron_add()`, `cron_list()`) persisted to database |
-| **Networking** | Raw Telnet socket with ad-hoc option parsing | **Dual-transport:** Async Telnet listener (`:4201`) + Native WebSocket gateway (`/ws`) |
+| **Networking** | Raw Telnet socket with ad-hoc option parsing | **Dual-transport:** Async Telnet listener (`:4201` + GMCP) + Native WebSocket gateway (`:5119/ws`) with typed JSON protocol |
 | **Presentation & HTML** | Text-only or legacy Pueblo custom tags | **TELOPT NAWS & TTYPE negotiation**, direct HTML streaming for modern web/Pueblo clients, and TrueColor/256/16-color ANSI fallback |
-| **Web Integration** | Requires external web server / CGI | Embedded ASP.NET Core Kestrel server serving static stylesheets (`/css`), health checks (`/health`), and WebSockets |
+| **Web Integration** | Requires external web server / CGI | Embedded ASP.NET Core Kestrel server (`:5119`) serving static stylesheets (`/css`), health checks (`/health`), and WebSockets (`/ws`) |
+| **Client RPC & Tooling** | Fragile text scraping (`ProgStart >`, `!@Window:`) | **Structured MUjs Protocol (v1.0):** Capability handshake, atomic code editor RPC, dockable panes, dynamic CSS, and signed script execution |
 
 ---
 
@@ -27,25 +28,29 @@ PennMUSH .NET preserves backward compatibility with standard PennMUSH softcode a
 ```mermaid
 flowchart TD
     subgraph Clients["Connected Clients"]
-        TEL["Telnet Client (:4201)"]
-        WEB["WebSocket Client (/ws)"]
+        TEL["Telnet Client (:4201 + GMCP)"]
+        MUJS["MUjs Client (WebSocket :5119/ws)"]
+        WEB["Generic Web / WebSocket Client"]
         PUB["Pueblo / HTML Client"]
     end
 
     subgraph Server["PennMUSH.Server (ASP.NET Core / .NET 10)"]
         TELNET_HOST["Telnet Host & Socket Listener"]
-        WS_HOST["WebSocket Gateway Handler"]
+        WS_HOST["WebSocket Gateway Handler (/ws, /game)"]
         KESTREL["Kestrel HTTP Host (/health, /css)"]
         SESSION_MGR["Session Manager & Telnet Negotiator (NAWS/TTYPE)"]
+        EDITOR_SESSIONS["Client Editor & Window Session Registry"]
     end
 
     subgraph Core["PennMUSH.Core Engine"]
+        DISPATCHER["Command Dispatcher & Trie Prefix Matcher"]
+        CLIENT_CMDS["@client/* Handler & Softcode Functions"]
         QUEUE["Deterministic Action Queue & Turn Pipeline"]
         EVAL["Softcode Expression Evaluator (250k Budget + ReDoS Guard)"]
         CRON["Persistent 5-Field Cron Scheduler"]
         DAG["C3 Linearized Multi-Parent / Multi-Zone DAG Engine"]
         COMSYS["Comsys (@channel, +c, @mail)"]
-        DB["In-Memory Object Database (#0, #1, #2...)"]
+        DB["In-Memory Object Database (#0, #1, #2...) with MatchObject"]
     end
 
     subgraph Storage["Persistence Layer"]
@@ -54,11 +59,15 @@ flowchart TD
     end
 
     TEL --> TELNET_HOST
+    MUJS --> WS_HOST
     WEB --> WS_HOST
     PUB --> TELNET_HOST
     TELNET_HOST --> SESSION_MGR
     WS_HOST --> SESSION_MGR
-    SESSION_MGR --> QUEUE
+    SESSION_MGR --> DISPATCHER
+    DISPATCHER --> CLIENT_CMDS
+    DISPATCHER --> QUEUE
+    CLIENT_CMDS --> EDITOR_SESSIONS
     QUEUE --> EVAL
     CRON --> QUEUE
     EVAL --> DAG
@@ -108,6 +117,41 @@ No more fragile `@wait 60 = @trigger me/TICK` loops or external crontab wrappers
 - **Color Translation:** Rich HTML colors (`<span style="color: #55ff55">`) automatically translate to 24-bit TrueColor ANSI, 256-color xterm palette, or 16-color ANSI fallbacks based on terminal capabilities.
 - **Kestrel Web Server:** Hosts live CSS stylesheets (`/css/classic.css`) referenced by Pueblo clients, and serves health endpoints.
 
+### 6. MUjs & Modern Client Communication Protocol (v1.0)
+PennMUSH .NET implements an official, non-hacky communication protocol with [MUjs](https://github.com/naHrej/MUjs) (HTML5/Electron/Vue 3 client), completely replacing legacy string-scraping conventions (`ProgStart >`, `!@style:url:`, `!@Window:`) with structured JSON RPC:
+
+- **Multiplexed WebSocket Protocol:** Dedicated WebSocket gateway (`/ws` and `/game`) binding to `http://0.0.0.0:5119` carrying typed UTF-8 JSON message frames:
+  ```json
+  {
+    "type": "terminal.output",
+    "id": "msg-101",
+    "timestamp": 1793749081000,
+    "payload": { "html": "<div class=\"room-title\">Room Zero</div>" }
+  }
+  ```
+- **Capability Negotiation Handshake:**
+  - Client sends `client.hello` declaring capabilities (`html5`, `editor`, `docking`, `styles`, `audio`, `signed-scripts`).
+  - Server validates and issues `server.hello` containing a cryptographically signed session token, asset base URL, and supported editor languages (`mushcode`, `csharp`, `moocode`).
+  - Graceful fallback for standard Telnet clients via GMCP (`IAC DO GMCP`) or pure ANSI.
+- **Atomic Code Editor RPC:**
+  - `editor.open`: Server instructs MUjs to open the Monaco/Ace editor for an attribute or object with language syntax highlighting, metadata headers, and code body.
+  - `editor.save`: Client transmits saved buffer directly over the RPC channel.
+  - `editor.result`: Server confirms write and returns any compilation/MUSHcode syntax diagnostics.
+- **Dockable Multi-Pane UI Engine:**
+  - `window.update`: Server dynamically spawns, docks (left/right sidebars for automap, inventory, HUD, chat), or detaches windows with custom HTML payloads.
+- **Dynamic Asset & Stylesheet Streaming:**
+  - `style.load`: Injects or swaps remote stylesheets (`/css/...`).
+  - `audio.play`: Triggers ambient audio or sound effects.
+- **In-Game Softcode & Admin API:**
+  - In-game administrative command suite: `@client/edit <target>/<attr>`, `@client/window <id>=<title>:<content>`, `@client/style <url>`, `@client/audio <url>`.
+  - MUSHcode softcode functions: `cedit()`, `cwindow()`, `cstyle()`, `caudio()`.
+
+### 7. PennMUSH Command Aliases & Name Resolution Engine
+- **Trie-Based Prefix Autoaliasing:** Unambiguous command prefixes automatically resolve to canonical commands (e.g. `tak` $\rightarrow$ `take` $\rightarrow$ `get`, `mov` $\rightarrow$ `move` $\rightarrow$ `go`, `inve` $\rightarrow$ `inventory`).
+- **Standard Command Aliases:** Built-in exact alias mappings for `x`/`ex` (`examine`), `l`/`read` (`look`), `i`/`inv` (`inventory`), `th` (`think`), `w` (`whisper`), `p` (`page`), `g`/`take` (`get`), `d`/`throw` (`drop`), `@sw` (`@switch`), `@tr` (`@trigger`), `@tel` (`@teleport`), `@if` (`@ifelse`), and `@recycle` (`@destroy`).
+- **Configuration-Driven Aliases:** Dynamic aliases and exit reservations loaded directly from standard PennMUSH configuration files (`game/mush.cnf`, `game/alias.cnf`, `game/restrict.cnf`).
+- **Universal Object & Name Matcher (`MatchObject`):** Resolves targets across commands (`look`, `examine`, `@set`, `@name`, `@power`, `@teleport`) supporting `here`, `me`, `*<player>`, `#<id>`, room contents (players & objects), carried inventory, and room exits.
+
 ---
 
 ## 📁 Repository Structure
@@ -132,13 +176,18 @@ pennmush-dotnet/
 ├── PennMUSH.Server/                  # Host executable
 │   ├── Hosting/                      # Telnet server, WebSocket hub, Kestrel host
 │   └── wwwroot/css/                  # Embedded stylesheets for web/Pueblo clients
-└── PennMUSH.Core.Tests/              # Test suite (128 passing unit & integration tests)
+└── PennMUSH.Core.Tests/              # Test suite (156 passing unit & integration tests)
     ├── Commands/
+    ├── Configuration/
     ├── Evaluation/
+    ├── Flags/
     ├── Locks/
     ├── Negotiation/
     ├── Persistence/
-    └── Scheduling/
+    ├── Protocol/
+    ├── Scheduling/
+    ├── Server/
+    └── Spatial/
 ```
 
 ---
@@ -154,7 +203,7 @@ dotnet build PennMUSH.slnx
 ```
 
 ### Running Tests
-Execute the comprehensive test suite:
+Execute the comprehensive test suite (all 156 tests passing):
 ```bash
 dotnet test PennMUSH.slnx
 ```
@@ -167,8 +216,8 @@ dotnet run --project PennMUSH.Server
 
 By default:
 - **Telnet Listener:** `0.0.0.0:4201`
-- **WebSocket Gateway:** `ws://localhost:5000/ws`
-- **HTTP Server:** `http://localhost:5000` (Health check at `http://localhost:5000/health`)
+- **WebSocket Gateway:** `ws://0.0.0.0:5119/ws` (and `/game`)
+- **HTTP Server:** `http://0.0.0.0:5119` (Health check at `http://0.0.0.0:5119/health`)
 
 ---
 
