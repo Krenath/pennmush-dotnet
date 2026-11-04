@@ -14,16 +14,17 @@ using PennMUSH.Server.Session;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Register Core MUSH Server Singleton
-builder.Services.AddSingleton<MUSHServer>();
+// Register Core MUSH Server Host (handles hot-reboots with zero connection drops)
+builder.Services.AddSingleton<MUSHServerHost>();
+builder.Services.AddSingleton(sp => sp.GetRequiredService<MUSHServerHost>().Server);
 
 // Register Telnet Listener Background Service (default port 4201)
 builder.Services.AddHostedService<TelnetListenerService>(sp =>
 {
-    var server = sp.GetRequiredService<MUSHServer>();
+    var host = sp.GetRequiredService<MUSHServerHost>();
     var logger = sp.GetRequiredService<ILogger<TelnetListenerService>>();
     int telnetPort = builder.Configuration.GetValue<int>("Telnet:Port", 4201);
-    return new TelnetListenerService(server, logger, telnetPort);
+    return new TelnetListenerService(host, logger, telnetPort);
 });
 
 var app = builder.Build();
@@ -33,26 +34,33 @@ app.UseWebSockets();
 app.UseStaticFiles();
 
 // Health Check Endpoint
-app.MapGet("/health", (MUSHServer server) =>
+app.MapGet("/health", (MUSHServerHost host) =>
 {
     return Results.Ok(new
     {
         status = "Healthy",
         version = "PennMUSH .NET 10 (Modernized)",
-        objects = server.Database.Count,
-        connectedSessions = server.Connections.Count,
-        channels = server.Channels.GetAllChannels().Select(c => c.Name)
+        objects = host.Database.Count,
+        connectedSessions = host.Connections.Count,
+        channels = host.Channels.GetAllChannels().Select(c => c.Name)
     });
 });
 
+// Admin Hot-Reboot Endpoint
+app.MapPost("/reboot", (MUSHServerHost host) =>
+{
+    host.Reboot();
+    return Results.Ok(new { status = "Reboot completed", preservedConnections = host.Connections.Count });
+});
+
 // WebSocket Gateway Endpoints (/ws and /game for backward compatibility)
-var handleWebSocket = async (HttpContext context, MUSHServer server) =>
+var handleWebSocket = async (HttpContext context, MUSHServerHost host) =>
 {
     if (context.WebSockets.IsWebSocketRequest)
     {
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
         var conn = new MUSHConnection(webSocket);
-        server.RegisterConnection(conn);
+        host.RegisterConnection(conn);
 
         // Send initial welcome
         await conn.SendLineAsync("<div class=\"system-msg\">Connected to PennMUSH WebSocket Gateway.</div>");
@@ -72,7 +80,7 @@ var handleWebSocket = async (HttpContext context, MUSHServer server) =>
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
                     string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    await server.HandleInputAsync(conn, message);
+                    await host.HandleInputAsync(conn, message);
                 }
             }
         }
@@ -82,7 +90,7 @@ var handleWebSocket = async (HttpContext context, MUSHServer server) =>
         }
         finally
         {
-            server.UnregisterConnection(conn);
+            host.UnregisterConnection(conn);
         }
     }
     else

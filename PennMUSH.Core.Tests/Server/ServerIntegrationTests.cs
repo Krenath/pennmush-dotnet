@@ -197,4 +197,61 @@ public class ServerIntegrationTests
             }
         }
     }
+
+    [Fact]
+    public async Task MUSHServerHost_HotReboots_WithoutDisconnectingPlayerConnections()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"server_reboot_{Guid.NewGuid():N}.db");
+        try
+        {
+            var host = new MUSHServerHost(dbPath);
+            var connOutputs = new List<string>();
+
+            var conn = new MUSHConnection(line =>
+            {
+                connOutputs.Add(line);
+                return Task.CompletedTask;
+            });
+
+            // 1. Connect player and authenticate
+            host.RegisterConnection(conn);
+            await host.HandleInputAsync(conn, "connect One one");
+            Assert.True(conn.PlayerId.IsValid);
+            Assert.Equal(1, conn.PlayerId.Value);
+
+            // 2. Perform in-world modifications
+            await host.HandleInputAsync(conn, "@dig Starship Deck");
+
+            connOutputs.Clear();
+
+            // 3. Trigger hot-reboot via @reboot command
+            await host.HandleInputAsync(conn, "@reboot");
+
+            // Allow async task to complete reboot
+            await Task.Delay(400);
+
+            // 4. Verify sockets were NEVER disconnected and player remained authenticated
+            Assert.True(conn.IsConnected);
+            Assert.Equal(1, host.Connections.Count);
+            Assert.Equal(conn.Id, host.Connections.First().Id);
+            Assert.Equal(1, host.Connections.First().PlayerId.Value);
+
+            // Verify hot-reboot broadcast was received by client
+            Assert.Contains(connOutputs, o => o.Contains("Hot-reboot") || o.Contains("reloaded with 0 disconnects"));
+
+            // 5. Verify commands still execute seamlessly on reloaded engine
+            connOutputs.Clear();
+            await host.HandleInputAsync(conn, "think [add(20,22)]");
+            Assert.Contains(connOutputs, o => o.Contains("42"));
+
+            host.Dispose();
+        }
+        finally
+        {
+            if (File.Exists(dbPath))
+            {
+                try { File.Delete(dbPath); } catch { }
+            }
+        }
+    }
 }

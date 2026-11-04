@@ -34,6 +34,8 @@ public class ExtensionManager : IDisposable
     private readonly ConcurrentDictionary<string, ExtensionRecord> _extensions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, IProtocolHandler> _protocolHandlers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, (ITickService Service, CancellationTokenSource Cts, Task Task)> _tickServices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<FileSystemWatcher> _watchers = new();
+    private readonly ConcurrentDictionary<string, Timer> _debounceTimers = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyCollection<ExtensionRecord> LoadedExtensions => _extensions.Values.ToList().AsReadOnly();
     public bool IsLoaded(string name) => _extensions.ContainsKey(name);
@@ -76,6 +78,9 @@ public class ExtensionManager : IDisposable
                     Console.WriteLine($"[ExtensionManager] Notice: Could not load plugin '{dll}': {ex.Message}");
                 }
             }
+
+            // Enable file system watcher for live hot-reloading
+            WatchPluginDirectory(dir);
         }
     }
 
@@ -91,7 +96,7 @@ public class ExtensionManager : IDisposable
         Assembly assembly;
         try
         {
-            assembly = context.LoadFromAssemblyPath(fullPath);
+            assembly = context.LoadAssemblyWithoutLock(fullPath);
         }
         catch
         {
@@ -270,8 +275,101 @@ public class ExtensionManager : IDisposable
         return false;
     }
 
+    private void WatchPluginDirectory(string dir)
+    {
+        if (!Directory.Exists(dir)) return;
+
+        try
+        {
+            var watcher = new FileSystemWatcher(dir, "*.dll")
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+                EnableRaisingEvents = true,
+                IncludeSubdirectories = true
+            };
+
+            watcher.Changed += OnPluginFileChanged;
+            watcher.Created += OnPluginFileChanged;
+            _watchers.Add(watcher);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ExtensionManager] Notice: Could not watch plugin dir '{dir}': {ex.Message}");
+        }
+    }
+
+    private void OnPluginFileChanged(object sender, FileSystemEventArgs e)
+    {
+        string fileName = Path.GetFileName(e.FullPath);
+        if (fileName.StartsWith("PennMUSH.Core", StringComparison.OrdinalIgnoreCase) ||
+            fileName.StartsWith("PennMUSH.Server", StringComparison.OrdinalIgnoreCase) ||
+            fileName.StartsWith("PennMUSH.Extensions", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Debounce by 500ms so compile/copy finishes writing before reload
+        _debounceTimers.AddOrUpdate(
+            e.FullPath,
+            path => new Timer(_ => TriggerHotReload(path), null, 500, Timeout.Infinite),
+            (path, oldTimer) =>
+            {
+                oldTimer.Dispose();
+                return new Timer(_ => TriggerHotReload(path), null, 500, Timeout.Infinite);
+            });
+    }
+
+    private void TriggerHotReload(string fullPath)
+    {
+        _debounceTimers.TryRemove(fullPath, out var timer);
+        timer?.Dispose();
+
+        // Match against existing loaded extension
+        var existing = _extensions.Values.FirstOrDefault(r =>
+            string.Equals(Path.GetFileName(r.FilePath), Path.GetFileName(fullPath), StringComparison.OrdinalIgnoreCase));
+
+        if (existing != null)
+        {
+            try
+            {
+                Console.WriteLine($"[ExtensionManager] Detected change in '{existing.Name}'. Hot-reloading live...");
+                var reloaded = ReloadExtension(existing.Name);
+                Console.WriteLine($"[ExtensionManager] Successfully hot-reloaded '{reloaded.Name}' v{reloaded.Version} with 0 disconnects.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ExtensionManager] Hot-reload error for '{existing.Name}': {ex.Message}");
+            }
+        }
+        else
+        {
+            try
+            {
+                var record = LoadExtension(fullPath);
+                Console.WriteLine($"[ExtensionManager] Auto-loaded new extension '{record.Name}' v{record.Version}.");
+            }
+            catch
+            {
+                // Ignored if file wasn't an IExtension
+            }
+        }
+    }
+
     public void Dispose()
     {
+        foreach (var watcher in _watchers)
+        {
+            watcher.EnableRaisingEvents = false;
+            watcher.Dispose();
+        }
+        _watchers.Clear();
+
+        foreach (var timer in _debounceTimers.Values)
+        {
+            timer.Dispose();
+        }
+        _debounceTimers.Clear();
+
         foreach (var name in _extensions.Keys.ToList())
         {
             UnloadExtension(name);

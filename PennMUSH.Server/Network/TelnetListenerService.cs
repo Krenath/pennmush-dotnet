@@ -13,14 +13,14 @@ using PennMUSH.Server.Session;
 
 public class TelnetListenerService : BackgroundService
 {
-    private readonly MUSHServer _server;
+    private readonly MUSHServerHost _host;
     private readonly ILogger<TelnetListenerService> _logger;
     private readonly int _port;
     private TcpListener? _listener;
 
-    public TelnetListenerService(MUSHServer server, ILogger<TelnetListenerService> logger, int port = 4201)
+    public TelnetListenerService(MUSHServerHost host, ILogger<TelnetListenerService> logger, int port = 4201)
     {
-        _server = server;
+        _host = host;
         _logger = logger;
         _port = port;
     }
@@ -54,7 +54,7 @@ public class TelnetListenerService : BackgroundService
     private async Task HandleClientAsync(TcpClient tcpClient, CancellationToken stoppingToken)
     {
         var conn = new MUSHConnection(tcpClient);
-        _server.RegisterConnection(conn);
+        _host.RegisterConnection(conn);
         _logger.LogInformation("New Telnet connection from {Endpoint} [Session {Id}]", tcpClient.Client.RemoteEndPoint, conn.Id);
 
         try
@@ -100,7 +100,7 @@ public class TelnetListenerService : BackgroundService
                     {
                         string line = lineBuilder.ToString();
                         lineBuilder.Clear();
-                        await _server.HandleInputAsync(conn, line, stoppingToken);
+                        await _host.HandleInputAsync(conn, line);
                     }
                     else
                     {
@@ -115,7 +115,7 @@ public class TelnetListenerService : BackgroundService
         }
         finally
         {
-            _server.UnregisterConnection(conn);
+            _host.UnregisterConnection(conn);
             conn.Close();
             _logger.LogInformation("Closed Telnet connection [Session {Id}]", conn.Id);
         }
