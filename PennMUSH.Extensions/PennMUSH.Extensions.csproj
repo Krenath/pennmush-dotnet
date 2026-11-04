@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>PennMUSH.Extensions</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Dean Santos</Authors>
+    <Description>Extensibility SDK and Plugin Interfaces for PennMUSH .NET</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PennMUSH.Core\PennMUSH.Core.csproj" />
+  </ItemGroup>
+
+</Project>

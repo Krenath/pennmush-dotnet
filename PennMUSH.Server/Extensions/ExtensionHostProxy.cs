@@ -1,0 +1,155 @@
+namespace PennMUSH.Server.Extensions;
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+using PennMUSH.Core.Commands;
+using PennMUSH.Core.Database;
+using PennMUSH.Core.MUSHcode;
+using PennMUSH.Core.Queue;
+using PennMUSH.Core.Scheduling;
+using PennMUSH.Core.Types;
+using PennMUSH.Extensions;
+using PennMUSH.Server.Engine;
+
+public class ExtensionHostProxy : IExtensionHost
+{
+    private readonly ExtensionManager _manager;
+    private readonly MUSHServer _server;
+    private readonly string _extensionName;
+
+    private readonly List<string> _registeredCommands = new();
+    private readonly List<string> _registeredFunctions = new();
+    private readonly List<string> _registeredTickServices = new();
+    private readonly List<string> _registeredProtocolHandlers = new();
+
+    public ObjectDatabase Database => _server.Database;
+    public CommandDispatcher Dispatcher => _server.Dispatcher;
+    public FunctionRegistry Functions => _server.Functions;
+    public ActionQueue Queue => _server.Queue;
+    public CronScheduler Cron => _server.Cron;
+
+    public ExtensionHostProxy(ExtensionManager manager, MUSHServer server, string extensionName)
+    {
+        _manager = manager;
+        _server = server;
+        _extensionName = extensionName;
+    }
+
+    public void RegisterCommand(ICommandHandler handler, params string[] aliases)
+    {
+        _server.Dispatcher.Register(handler, aliases);
+        _registeredCommands.Add(handler.Name);
+        foreach (var alias in aliases)
+        {
+            _registeredCommands.Add(alias);
+        }
+    }
+
+    public void UnregisterCommand(string commandName)
+    {
+        _server.Dispatcher.Unregister(commandName);
+        _registeredCommands.Remove(commandName);
+    }
+
+    public void RegisterFunction(string name, MUSHFunction fn)
+    {
+        _server.Functions.Register(name, fn);
+        _registeredFunctions.Add(name);
+    }
+
+    public void UnregisterFunction(string name)
+    {
+        _server.Functions.Unregister(name);
+        _registeredFunctions.Remove(name);
+    }
+
+    public void RegisterTickService(ITickService tickService)
+    {
+        _manager.RegisterTickServiceInternal(tickService);
+        _registeredTickServices.Add(tickService.Name);
+    }
+
+    public void UnregisterTickService(string name)
+    {
+        _manager.UnregisterTickServiceInternal(name);
+        _registeredTickServices.Remove(name);
+    }
+
+    public void RegisterProtocolHandler(string typePrefix, IProtocolHandler handler)
+    {
+        _manager.RegisterProtocolHandlerInternal(typePrefix, handler);
+        _registeredProtocolHandlers.Add(typePrefix);
+    }
+
+    public void UnregisterProtocolHandler(string typePrefix)
+    {
+        _manager.UnregisterProtocolHandlerInternal(typePrefix);
+        _registeredProtocolHandlers.Remove(typePrefix);
+    }
+
+    public void BroadcastNotification(Notification notification)
+    {
+        _server.DispatchNotification(notification);
+    }
+
+    public void NotifyPlayer(Dbref player, string message)
+    {
+        foreach (var conn in _server.Connections)
+        {
+            if (conn.PlayerId == player)
+            {
+                _ = conn.SendLineAsync(message);
+            }
+        }
+    }
+
+    public async Task SendProtocolEnvelopeAsync(Dbref player, string type, object payload)
+    {
+        var envelope = new
+        {
+            type = type,
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            payload = payload
+        };
+
+        string json = JsonSerializer.Serialize(envelope);
+
+        foreach (var conn in _server.Connections)
+        {
+            if (conn.PlayerId == player)
+            {
+                await conn.SendLineAsync(json);
+            }
+        }
+    }
+
+    public void Cleanup()
+    {
+        foreach (var cmd in _registeredCommands)
+        {
+            try { _server.Dispatcher.Unregister(cmd); } catch { }
+        }
+        _registeredCommands.Clear();
+
+        foreach (var func in _registeredFunctions)
+        {
+            try { _server.Functions.Unregister(func); } catch { }
+        }
+        _registeredFunctions.Clear();
+
+        foreach (var tick in _registeredTickServices)
+        {
+            try { _manager.UnregisterTickServiceInternal(tick); } catch { }
+        }
+        _registeredTickServices.Clear();
+
+        foreach (var proto in _registeredProtocolHandlers)
+        {
+            try { _manager.UnregisterProtocolHandlerInternal(proto); } catch { }
+        }
+        _registeredProtocolHandlers.Clear();
+    }
+}

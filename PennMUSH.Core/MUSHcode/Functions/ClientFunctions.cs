@@ -35,10 +35,12 @@ public static class ClientFunctions
         if (!Dbref.TryParse(args[1], out var target)) return "#-1 INVALID TARGET";
         string attribute = args[2].Trim();
 
-        var openPayload = _editorSessions.StartAttributeSession(player, target, attribute, reg.Database ?? new ObjectDatabase());
+        var editorSessions = reg.EditorSessions ?? _editorSessions;
+        var openPayload = editorSessions.StartAttributeSession(player, target, attribute, reg.Database ?? new ObjectDatabase());
         if (openPayload == null) return "#-1 PERMISSION DENIED";
 
-        _dispatcher?.Invoke(new Notification(
+        var dispatcher = reg.NotificationDispatcher ?? _dispatcher;
+        dispatcher?.Invoke(new Notification(
             NotificationScope.Target,
             $"[Client] Code editor opened for {openPayload.Title}.",
             Target: player,
@@ -62,7 +64,8 @@ public static class ClientFunctions
 
         var payload = new WindowUpdatePayload(windowId, target, windowId, action, html, cssUrl);
 
-        _dispatcher?.Invoke(new Notification(
+        var dispatcher = reg.NotificationDispatcher ?? _dispatcher;
+        dispatcher?.Invoke(new Notification(
             NotificationScope.Target,
             $"[Client Window: {windowId} ({target}/{action})]",
             Target: player,
@@ -82,7 +85,8 @@ public static class ClientFunctions
 
         var payload = new StyleLoadPayload("style_" + Guid.NewGuid().ToString("N")[..8], url, "global");
 
-        _dispatcher?.Invoke(new Notification(
+        var dispatcher = reg.NotificationDispatcher ?? _dispatcher;
+        dispatcher?.Invoke(new Notification(
             NotificationScope.Target,
             $"[Client Style: {url}]",
             Target: player,
@@ -104,7 +108,8 @@ public static class ClientFunctions
 
         var payload = new AudioPlayPayload(url, vol, loop);
 
-        _dispatcher?.Invoke(new Notification(
+        var dispatcher = reg.NotificationDispatcher ?? _dispatcher;
+        dispatcher?.Invoke(new Notification(
             NotificationScope.Target,
             $"[Client Audio: {url}]",
             Target: player,
@@ -123,7 +128,8 @@ public static class ClientFunctions
         string type = args[1].Trim();
         string json = args[2].Trim();
 
-        _dispatcher?.Invoke(new Notification(
+        var dispatcher = reg.NotificationDispatcher ?? _dispatcher;
+        dispatcher?.Invoke(new Notification(
             NotificationScope.Target,
             $"[Client OOB: {type}]",
             Target: player,

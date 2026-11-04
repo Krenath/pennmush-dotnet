@@ -21,6 +21,8 @@ using PennMUSH.Core.Protocol;
 using PennMUSH.Core.Queue;
 using PennMUSH.Core.Scheduling;
 using PennMUSH.Core.Types;
+using PennMUSH.Server.Commands;
+using PennMUSH.Server.Extensions;
 using PennMUSH.Server.Session;
 
 public class MUSHServer
@@ -44,6 +46,7 @@ public class MUSHServer
     public FunctionRegistry Functions { get; }
     public ExpressionEvaluator Evaluator { get; }
     public CommandDispatcher Dispatcher { get; }
+    public ExtensionManager Extensions { get; }
 
     public IReadOnlyCollection<MUSHConnection> Connections => _connections.Values.ToList();
 
@@ -82,6 +85,10 @@ public class MUSHServer
         }
 
         Functions = new FunctionRegistry(Database);
+        Functions.NotificationDispatcher = DispatchNotification;
+        Functions.EditorSessions = EditorSessions;
+        Functions.Scheduler = Cron;
+        Functions.Queue = Queue;
         Evaluator = new ExpressionEvaluator(Functions.Dispatch);
         Functions.Evaluator = Evaluator;
 
@@ -96,7 +103,12 @@ public class MUSHServer
         }
 
         Dispatcher = new CommandDispatcher(Evaluator);
+        Extensions = new ExtensionManager(this);
         RegisterCommands();
+
+        // Scan and initialize external plugins
+        string pluginsDir = Path.Combine(GameDirectory, "plugins");
+        Extensions.ScanAndLoadPlugins(pluginsDir, Path.Combine(AppContext.BaseDirectory, "plugins"), Path.Combine(Directory.GetCurrentDirectory(), "plugins"));
 
         // Start queue tick background task
         _ = Task.Run(() => QueueTickLoopAsync(_cts.Token));
@@ -194,6 +206,7 @@ public class MUSHServer
         Dispatcher.Register(new DoingCommandHandler(), "doing", "@poll");
         Dispatcher.Register(new VersionCommandHandler(), "@version");
         Dispatcher.Register(new ClientCommandHandler(EditorSessions), "@client");
+        Dispatcher.Register(new PluginCommandHandler(Extensions), "@plugin", "@extension");
 
         // Apply aliases & reserved aliases from configuration
         foreach (var (alias, orig) in Config.CommandAliases)
@@ -575,6 +588,21 @@ public class MUSHServer
                 if (close != null)
                 {
                     EditorSessions.CloseSession(close.SessionId);
+                }
+                break;
+
+            default:
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("payload", out var payload))
+                    {
+                        await Extensions.TryDispatchProtocolEnvelopeAsync(conn.PlayerId, type, payload);
+                    }
+                }
+                catch
+                {
+                    // Ignore malformed custom envelopes
                 }
                 break;
         }

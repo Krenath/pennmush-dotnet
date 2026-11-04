@@ -39,17 +39,18 @@ public static class AsyncFunctions
         // Capture isolated context for thread execution
         var clonedCtx = new EvaluationContext(ctx.Executor, ctx.Enactor, ctx.Caller, ctx.Location, (string[])ctx.Arguments.Clone());
 
+        var queue = reg.Queue ?? _queue;
         Task.Run(() =>
         {
             try
             {
                 string result = reg.Evaluator.Evaluate(codeToRun, clonedCtx);
 
-                if (!string.IsNullOrWhiteSpace(callback) && _queue != null)
+                if (!string.IsNullOrWhiteSpace(callback) && queue != null)
                 {
                     // Enqueue callback command with result in %0
                     string cmd = callback.Contains("%0") ? callback.Replace("%0", result) : $"{callback} {result}";
-                    _queue.Enqueue(clonedCtx.Executor, clonedCtx.Enactor, cmd, args: new[] { result });
+                    queue.Enqueue(clonedCtx.Executor, clonedCtx.Enactor, cmd, args: new[] { result });
                 }
             }
             catch

@@ -12,6 +12,10 @@ public class FunctionRegistry
 
     public ObjectDatabase? Database { get; }
     public ExpressionEvaluator? Evaluator { get; set; }
+    public Action<PennMUSH.Core.Commands.Notification>? NotificationDispatcher { get; set; }
+    public PennMUSH.Core.Protocol.EditorSessionManager? EditorSessions { get; set; }
+    public PennMUSH.Core.Scheduling.CronScheduler? Scheduler { get; set; }
+    public PennMUSH.Core.Queue.ActionQueue? Queue { get; set; }
 
     public FunctionRegistry(ObjectDatabase? database = null)
     {
@@ -22,6 +26,11 @@ public class FunctionRegistry
     public void Register(string name, MUSHFunction function)
     {
         _functions[name] = function;
+    }
+
+    public bool Unregister(string name)
+    {
+        return _functions.Remove(name);
     }
 
     public bool AddAlias(string original, string alias)

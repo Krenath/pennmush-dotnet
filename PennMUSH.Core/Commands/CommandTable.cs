@@ -59,6 +59,48 @@ public class CommandTable
         return true;
     }
 
+    public bool Unregister(string commandOrAlias)
+    {
+        string normalized = commandOrAlias.Trim().ToLowerInvariant();
+        if (!_exactCommands.TryGetValue(normalized, out var entry))
+        {
+            return false;
+        }
+
+        if (string.Equals(entry.CanonicalName, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            var keysToRemove = _exactCommands
+                .Where(kv => string.Equals(kv.Value.CanonicalName, normalized, StringComparison.OrdinalIgnoreCase))
+                .Select(kv => kv.Key)
+                .ToList();
+
+            foreach (var key in keysToRemove)
+            {
+                _exactCommands.Remove(key);
+            }
+        }
+        else
+        {
+            _exactCommands.Remove(normalized);
+        }
+
+        RebuildTrie();
+        return true;
+    }
+
+    private void RebuildTrie()
+    {
+        _root.Children.Clear();
+        _root.Handler = null;
+        _root.CanonicalName = null;
+
+        foreach (var (name, (handler, canonical)) in _exactCommands)
+        {
+            bool isPrimary = string.Equals(name, canonical, StringComparison.OrdinalIgnoreCase);
+            InsertTrie(name, handler, canonical, isPrimary);
+        }
+    }
+
     public void ReserveAlias(string alias)
     {
         if (!string.IsNullOrWhiteSpace(alias))

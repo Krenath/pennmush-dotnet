@@ -28,3 +28,7 @@ mush.db*
 ## OS generated files
 .DS_Store
 Thumbs.db
+
+## Plugin assemblies (runtime drop-ins)
+plugins/*.dll
+plugins/*/*.dll

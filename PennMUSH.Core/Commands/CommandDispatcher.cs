@@ -26,6 +26,11 @@ public class CommandDispatcher
         _commandTable.Register(handler, aliases);
     }
 
+    public bool Unregister(string commandName)
+    {
+        return _commandTable.Unregister(commandName);
+    }
+
     public bool AddAlias(string originalCommand, string alias)
     {
         return _commandTable.AddAlias(originalCommand, alias);

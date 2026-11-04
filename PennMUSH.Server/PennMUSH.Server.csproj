@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PennMUSH.Core\PennMUSH.Core.csproj" />
+    <ProjectReference Include="..\PennMUSH.Extensions\PennMUSH.Extensions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
