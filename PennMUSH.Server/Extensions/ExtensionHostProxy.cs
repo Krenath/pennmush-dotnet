@@ -126,6 +126,11 @@ public class ExtensionHostProxy : IExtensionHost
         }
     }
 
+    public void Log(string message)
+    {
+        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] [{_extensionName}] {message}");
+    }
+
     public void Cleanup()
     {
         foreach (var cmd in _registeredCommands)

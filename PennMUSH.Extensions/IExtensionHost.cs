@@ -33,4 +33,5 @@ public interface IExtensionHost
     void BroadcastNotification(Notification notification);
     void NotifyPlayer(Dbref player, string message);
     Task SendProtocolEnvelopeAsync(Dbref player, string type, object payload);
+    void Log(string message);
 }
