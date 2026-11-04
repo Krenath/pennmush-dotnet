@@ -36,6 +36,7 @@ public class ExtensionManager : IDisposable
     private readonly ConcurrentDictionary<string, (ITickService Service, CancellationTokenSource Cts, Task Task)> _tickServices = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyCollection<ExtensionRecord> LoadedExtensions => _extensions.Values.ToList().AsReadOnly();
+    public bool IsLoaded(string name) => _extensions.ContainsKey(name);
 
     public ExtensionManager(MUSHServer server)
     {

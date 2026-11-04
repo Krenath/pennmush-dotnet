@@ -128,4 +128,33 @@ public class ExtensionManagerTests
         handler.Execute(wizCtx, db);
         Assert.Contains(wizCtx.Notifications, n => n.Contains("No external plugins are currently loaded.") || n.Contains("Loaded PennMUSH Extensions"));
     }
+
+    [Fact]
+    public void ExtensionManager_CanDynamicallyLoadAndUnloadPlugin()
+    {
+        string pluginDll = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../plugins/PennMUSH.SpaceEngine.dll"));
+        if (!File.Exists(pluginDll))
+        {
+            pluginDll = @"C:\Repos\pennmush-dotnet\plugins\PennMUSH.SpaceEngine.dll";
+        }
+
+        if (File.Exists(pluginDll))
+        {
+            var server = new MUSHServer();
+            var record = server.Extensions.LoadExtension(pluginDll);
+            Assert.NotNull(record);
+            Assert.True(server.Extensions.IsLoaded("PennMUSH.SpaceEngine"));
+
+            // Verify @space and space registered dynamically
+            Assert.Equal(CommandLookupStatus.Found, server.Dispatcher.Table.Lookup("@space").Status);
+            Assert.Equal(CommandLookupStatus.Found, server.Dispatcher.Table.Lookup("space").Status);
+            Assert.True(server.Functions.HasFunction("space_ships"));
+
+            // Unload dynamically
+            bool unloaded = server.Extensions.UnloadExtension("PennMUSH.SpaceEngine");
+            Assert.True(unloaded);
+            Assert.False(server.Extensions.IsLoaded("PennMUSH.SpaceEngine"));
+            Assert.Equal(CommandLookupStatus.NotFound, server.Dispatcher.Table.Lookup("@space").Status);
+        }
+    }
 }
