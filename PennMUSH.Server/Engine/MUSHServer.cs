@@ -107,8 +107,16 @@ public class MUSHServer
         RegisterCommands();
 
         // Scan and initialize external plugins
-        string pluginsDir = Path.Combine(GameDirectory, "plugins");
-        Extensions.ScanAndLoadPlugins(pluginsDir, Path.Combine(AppContext.BaseDirectory, "plugins"), Path.Combine(Directory.GetCurrentDirectory(), "plugins"));
+        var pluginCandidates = new[]
+        {
+            Path.Combine(GameDirectory, "plugins"),
+            Path.Combine(AppContext.BaseDirectory, "plugins"),
+            Path.Combine(Directory.GetCurrentDirectory(), "plugins"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "plugins")),
+            Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "plugins")),
+            @"C:\Repos\pennmush-dotnet\plugins"
+        };
+        Extensions.ScanAndLoadPlugins(pluginCandidates);
 
         // Start queue tick background task
         _ = Task.Run(() => QueueTickLoopAsync(_cts.Token));

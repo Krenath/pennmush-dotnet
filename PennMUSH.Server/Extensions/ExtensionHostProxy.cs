@@ -106,6 +106,11 @@ public class ExtensionHostProxy : IExtensionHost
         }
     }
 
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public async Task SendProtocolEnvelopeAsync(Dbref player, string type, object payload)
     {
         var envelope = new
@@ -115,7 +120,7 @@ public class ExtensionHostProxy : IExtensionHost
             payload = payload
         };
 
-        string json = JsonSerializer.Serialize(envelope);
+        string json = JsonSerializer.Serialize(envelope, SerializerOptions);
 
         foreach (var conn in _server.Connections)
         {

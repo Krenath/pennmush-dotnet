@@ -45,6 +45,8 @@ public class ExtensionManager : IDisposable
 
     public void ScanAndLoadPlugins(params string[] searchPaths)
     {
+        var visitedDlls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var dir in searchPaths)
         {
             if (!Directory.Exists(dir)) continue;
@@ -61,13 +63,17 @@ public class ExtensionManager : IDisposable
                     continue;
                 }
 
+                string full = Path.GetFullPath(dll);
+                if (!visitedDlls.Add(full)) continue;
+
                 try
                 {
-                    LoadExtension(dll);
+                    var record = LoadExtension(full);
+                    Console.WriteLine($"[ExtensionManager] Loaded extension '{record.Name}' v{record.Version} from {full}");
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Continue scanning other DLLs
+                    Console.WriteLine($"[ExtensionManager] Notice: Could not load plugin '{dll}': {ex.Message}");
                 }
             }
         }
@@ -75,7 +81,7 @@ public class ExtensionManager : IDisposable
 
     public ExtensionRecord LoadExtension(string dllPath)
     {
-        string fullPath = Path.GetFullPath(dllPath);
+        string fullPath = ResolveDllPath(dllPath);
         if (!File.Exists(fullPath))
         {
             throw new FileNotFoundException($"Plugin assembly not found at: {fullPath}");
@@ -130,6 +136,30 @@ public class ExtensionManager : IDisposable
 
         _extensions[instance.Name] = record;
         return record;
+    }
+
+    private static string ResolveDllPath(string path)
+    {
+        if (File.Exists(path)) return Path.GetFullPath(path);
+
+        string fileName = Path.GetFileName(path);
+        var candidates = new[]
+        {
+            Path.Combine(Directory.GetCurrentDirectory(), path),
+            Path.Combine(Directory.GetCurrentDirectory(), "plugins", fileName),
+            Path.Combine(AppContext.BaseDirectory, path),
+            Path.Combine(AppContext.BaseDirectory, "plugins", fileName),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "plugins", fileName)),
+            Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "plugins", fileName)),
+            Path.Combine(@"C:\Repos\pennmush-dotnet\plugins", fileName)
+        };
+
+        foreach (var c in candidates)
+        {
+            if (File.Exists(c)) return c;
+        }
+
+        return Path.GetFullPath(path);
     }
 
     public bool UnloadExtension(string name)
