@@ -30,5 +30,6 @@ mush.db*
 Thumbs.db
 
 ## Plugin assemblies (runtime drop-ins)
+plugins/
 plugins/*.dll
 plugins/*/*.dll

@@ -33,9 +33,24 @@ public class ExtensionLoadContext : AssemblyLoadContext
         string candidatePath = Path.Combine(_pluginDirectory, $"{assemblyName.Name}.dll");
         if (File.Exists(candidatePath))
         {
-            return LoadFromAssemblyPath(candidatePath);
+            return LoadAssemblyWithoutLock(candidatePath);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Loads an assembly from a byte stream into this collectible context so that the
+    /// underlying disk file is never locked by Windows, allowing hot-swapping during runtime.
+    /// </summary>
+    public Assembly LoadAssemblyWithoutLock(string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        string pdbPath = Path.ChangeExtension(path, ".pdb");
+        byte[]? pdbBytes = File.Exists(pdbPath) ? File.ReadAllBytes(pdbPath) : null;
+
+        using var asmStream = new MemoryStream(bytes);
+        using var pdbStream = pdbBytes != null ? new MemoryStream(pdbBytes) : null;
+        return LoadFromStream(asmStream, pdbStream);
     }
 }

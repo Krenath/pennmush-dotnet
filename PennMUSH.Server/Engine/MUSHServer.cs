@@ -215,6 +215,7 @@ public class MUSHServer
         Dispatcher.Register(new VersionCommandHandler(), "@version");
         Dispatcher.Register(new ClientCommandHandler(EditorSessions), "@client");
         Dispatcher.Register(new PluginCommandHandler(Extensions), "@plugin", "@extension");
+        Dispatcher.Register(new RebootCommandHandler(() => OnRebootRequested?.Invoke()), "@reboot");
 
         // Apply aliases & reserved aliases from configuration
         foreach (var (alias, orig) in Config.CommandAliases)
@@ -241,9 +242,17 @@ public class MUSHServer
         }
     }
 
-    public void RegisterConnection(MUSHConnection conn)
+    public event Action? OnRebootRequested;
+
+    public void RegisterConnection(MUSHConnection conn, bool isReconnect = false)
     {
         _connections[conn.Id] = conn;
+
+        // If player is already authenticated or re-registering across a hot-reboot, do not re-show login screen
+        if (isReconnect || conn.PlayerId.IsValid)
+        {
+            return;
+        }
 
         // Display connect screen
         string connectPath = Path.Combine(GameDirectory, Config.ConnectFile);
@@ -687,10 +696,23 @@ public class MUSHServer
         }
     }
 
+    /// <summary>
+    /// Flushes database state to storage and shuts down extensions cleanly for a hot-reboot,
+    /// detaching connection references WITHOUT closing the underlying player sockets.
+    /// </summary>
+    public void PrepareForReboot()
+    {
+        try { _cts.Cancel(); } catch { }
+        Storage.Save(Database, Cron);
+        Extensions.Dispose();
+        _connections.Clear();
+    }
+
     public void Stop()
     {
-        _cts.Cancel();
+        try { _cts.Cancel(); } catch { }
         Storage.Save(Database, Cron);
+        Extensions.Dispose();
         foreach (var conn in _connections.Values)
         {
             conn.Close();
