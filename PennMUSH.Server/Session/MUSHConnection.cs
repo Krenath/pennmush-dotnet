@@ -74,16 +74,12 @@ public class MUSHConnection
             return;
         }
 
-        string html = "<span>" + ApplyHtmlBreaks(text) + "</span>";
+        string html = "<div>" + ApplyHtmlBreaks(text) + "</div>";
         if (ProtocolMode != ClientProtocolMode.MujsWebSocket)
         {
-            // A continuous HTML stream lays spans out inline, so each line needs
-            // its own break. A websocket that has not finished MUjs negotiation
-            // still splits on a wire newline, and an extra <br/> would blank a row.
-            if (_webSocket == null)
-            {
-                html += "<br/>";
-            }
+            // A div is a block, so the next line starts on its own. Keep a wire
+            // newline for clients that still split records on \r\n, including a
+            // websocket that has not finished MUjs negotiation.
             html += "\r\n";
         }
 

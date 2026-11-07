@@ -294,7 +294,7 @@ public class MujsProtocolTests
     }
 
     [Fact]
-    public async Task HtmlMujsLine_WrapsBreaksInASpanWithoutATrailingBreak()
+    public async Task HtmlMujsLine_WrapsBreaksInADivWithoutATrailingBreak()
     {
         var sent = new List<string>();
         var conn = new MUSHConnection(msg =>
@@ -309,11 +309,11 @@ public class MujsProtocolTests
 
         var payload = ProtocolSerializer.DeserializePayload<TerminalOutputPayload>(sent[0]);
         Assert.NotNull(payload);
-        Assert.Equal("<span>Alpha<br/>Beta<br/>Gamma</span>", payload.Html);
+        Assert.Equal("<div>Alpha<br/>Beta<br/>Gamma</div>", payload.Html);
     }
 
     [Fact]
-    public async Task HtmlStreamLine_EndsWithABreakAndAWireNewline()
+    public async Task HtmlStreamLine_EndsWithAWireNewline()
     {
         var sent = new List<string>();
         var conn = new MUSHConnection(msg =>
@@ -325,7 +325,7 @@ public class MujsProtocolTests
 
         await conn.SendLineAsync("Alpha\nBeta");
 
-        Assert.Equal("<span>Alpha<br/>Beta</span><br/>\r\n", sent[0]);
+        Assert.Equal("<div>Alpha<br/>Beta</div>\r\n", sent[0]);
     }
 
     [Fact]
